@@ -46,7 +46,7 @@ import { darkTheme, calendarTheme } from '@/constants/theme';
 
 
 
-import { ExerciseType, EXERCISE_NAMES, isDurationBasedExercise, DURATION_PRESETS } from '@/types/workout';
+import { ExerciseType, EXERCISE_NAMES, isDurationBasedExercise, DURATION_PRESETS, ExerciseDefinition } from '@/types/workout';
 
 
 
@@ -97,19 +97,6 @@ export default function HomeScreen() {
 
 
 
-  const [searchInput, setSearchInput] = useState('');
-
-
-
-
-
-  const [searchQuery, setSearchQuery] = useState('');
-
-
-
-
-
-  const [activeTab, setActiveTab] = useState<'recent' | 'favorite' | 'all'>('recent');
 
 
 
@@ -132,6 +119,7 @@ export default function HomeScreen() {
 
 
   const sheetHeight = useRef(Dimensions.get('window').height * 0.7).current;
+  const sheetListMaxHeight = Math.max(220, sheetHeight - 220);
 
 
 
@@ -436,48 +424,6 @@ export default function HomeScreen() {
 
 
 
-    const timeout = setTimeout(() => {
-
-
-
-
-
-      setSearchQuery(searchInput.trim());
-
-
-
-
-
-    }, 150);
-
-
-
-
-
-    return () => clearTimeout(timeout);
-
-
-
-
-
-  }, [searchInput]);
-
-
-
-
-
-
-
-
-
-
-
-  useEffect(() => {
-
-
-
-
-
     if (!dialogVisible) return;
 
 
@@ -569,18 +515,6 @@ export default function HomeScreen() {
 
 
       setDialogVisible(false);
-
-
-
-
-
-      setSearchInput('');
-
-
-
-
-
-      setSearchQuery('');
 
 
 
@@ -718,11 +652,26 @@ export default function HomeScreen() {
 
 
 
+  const kindLabel = (kind: ExerciseDefinition['kind']) => {
+    switch (kind) {
+      case 'strength':
+        return '筋トレ';
+      case 'cardio':
+        return '有酸素';
+      case 'machine':
+        return 'マシン';
+      case 'freeweight':
+        return 'フリーウェイト';
+      default:
+        return '筋トレ';
+    }
+  };
+
   const exerciseCatalog = useMemo(() => {
     const customItems = customExercises.map((exercise) => ({
       id: exercise.id,
       name: exercise.name,
-      category: exercise.kind === 'strength' ? '筋トレ' : exercise.kind === 'cardio' ? '有酸素' : exercise.kind === 'machine' ? 'マシン' : exercise.kind === 'freeweight' ? 'フリーウェイト' : '筋トレ',
+      category: kindLabel(exercise.kind),
       isCustom: true,
     }));
 
@@ -766,198 +715,22 @@ export default function HomeScreen() {
 
 
   }, [exerciseCatalog]);
-
-
-
-
-
-
-
-
-
-
-
   const filteredExercises = useMemo(() => {
-
-
-
-
-
     let list = exerciseCatalog;
 
-
-
-
-
-    if (searchQuery.length > 0) {
-
-
-
-
-
-      const q = searchQuery.toLowerCase();
-
-
-
-
-
-      list = list.filter((item) => item.name.toLowerCase().includes(q));
-
-
-
-
-
-    } else if (activeTab === 'all' && activeCategory) {
-
-
-
-
-
+    if (activeCategory) {
       list = list.filter((item) => item.category === activeCategory);
-
-
-
-
-
     }
 
-
-
-
-
-
-
-
-
-
-
-    if (activeTab === 'recent') {
-
-
-
-
-
-      list = [...list].sort((a, b) => {
-
-
-
-
-
-        const aTime = exercisePreferences[a.id]?.lastUsedAt || 0;
-
-
-
-
-
-        const bTime = exercisePreferences[b.id]?.lastUsedAt || 0;
-
-
-
-
-
-        return bTime - aTime;
-
-
-
-
-
-      });
-
-
-
-
-
-    } else if (activeTab === 'favorite') {
-
-
-
-
-
-      list = [...list].sort((a, b) => {
-
-
-
-
-
-        const aFav = exercisePreferences[a.id]?.isFavorite ? 1 : 0;
-
-
-
-
-
-        const bFav = exercisePreferences[b.id]?.isFavorite ? 1 : 0;
-
-
-
-
-
-        if (aFav !== bFav) return bFav - aFav;
-
-
-
-
-
-        return a.name.localeCompare(b.name, 'ja-JP');
-
-
-
-
-
-      });
-
-
-
-
-
-    } else {
-
-
-
-
-
-      list = [...list].sort((a, b) => {
-
-
-
-
-
-        const cat = (a.category || '').localeCompare(b.category || '', 'ja-JP');
-
-
-
-
-
-        if (cat !== 0) return cat;
-
-
-
-
-
-        return a.name.localeCompare(b.name, 'ja-JP');
-
-
-
-
-
-      });
-
-
-
-
-
-    }
-
-
-
-
+    list = [...list].sort((a, b) => {
+      const aFav = exercisePreferences[a.id]?.isFavorite ? 1 : 0;
+      const bFav = exercisePreferences[b.id]?.isFavorite ? 1 : 0;
+      if (aFav !== bFav) return bFav - aFav;
+      return a.name.localeCompare(b.name, 'ja-JP');
+    });
 
     return list;
-
-
-
-
-
-  }, [exerciseCatalog, searchQuery, activeTab, activeCategory, exercisePreferences]);
+  }, [exerciseCatalog, activeCategory, exercisePreferences]);
 
 
 
@@ -1596,1126 +1369,287 @@ export default function HomeScreen() {
 
                               )}
 
-
-
-
-
-
-
-
-
-
-
                               <View style={styles.compactRow}>
                                 <TextInput
                                   mode="outlined"
                                   label="回数"
-                                  value={entry.reps > 0 ? entry.reps.toString() : ''}
-                                  onChangeText={(text) => updateEntryReps(exercise.id, setIndex, entryIndex, parseInt(text, 10) || 0)}
-                                  placeholder="0"
-                                  keyboardType="number-pad"
-                                  style={styles.compactInput}
+                                  value={entry.reps?.toString() || ''}
+                                  onChangeText={(text) => updateEntryReps(exercise.id, setIndex, entryIndex, text ? parseInt(text, 10) || 0 : 0)}
+                                  keyboardType="numeric"
+                                  style={styles.repsInput}
+                                  dense
                                   outlineColor={darkTheme.colors.outline}
                                   activeOutlineColor={getExerciseColor(exercise.type)}
-                                  dense
                                 />
-
                                 <TextInput
                                   mode="outlined"
-                                  label="重量"
-                                  value={entry.weight ? entry.weight.toString() : ''}
-                                  onChangeText={(text) => {
-                                    const weight = parseFloat(text);
-                                    updateEntryWeight(
-                                      exercise.id,
-                                      setIndex,
-                                      entryIndex,
-                                      Number.isFinite(weight) ? weight : 0
-                                    );
-                                  }}
-                                  placeholder="kg"
-                                  keyboardType="decimal-pad"
-                                  style={styles.compactInput}
+                                  label="重量(kg)"
+                                  value={entry.weight?.toString() || ''}
+                                  onChangeText={(text) => updateEntryWeight(exercise.id, setIndex, entryIndex, text ? parseFloat(text) || 0 : 0)}
+                                  keyboardType="numeric"
+                                  style={styles.repsInput}
+                                  dense
                                   outlineColor={darkTheme.colors.outline}
                                   activeOutlineColor={getExerciseColor(exercise.type)}
-                                  dense
                                 />
                               </View>
 
-                              {(
+                              <Button
+                                mode="text"
+                                onPress={() => toggleEntryDetail(key)}
+                                style={styles.detailToggle}
+                                compact
+                              >
+                                {isOpen ? '詳細を閉じる' : '詳細設定'}
+                              </Button>
+
+                              {isOpen && (
                                 <View style={styles.detailBlock}>
-                                  <View style={styles.setRow}>
+                                  <View style={styles.compactRow}>
                                     <TextInput
                                       mode="outlined"
                                       label="バリエーション"
                                       value={entry.variation || ''}
                                       onChangeText={(text) => updateEntryVariation(exercise.id, setIndex, entryIndex, text)}
-                                      placeholder="例: ナロー"
                                       style={styles.variationInput}
+                                  dense
                                       outlineColor={darkTheme.colors.outline}
                                       activeOutlineColor={getExerciseColor(exercise.type)}
-                                      dense
                                     />
                                   </View>
-
-                                  <View style={styles.setRow}>
+                                  <View style={styles.compactRow}>
                                     <TextInput
                                       mode="outlined"
                                       label="テンポ"
                                       value={entry.tempo || ''}
                                       onChangeText={(text) => updateEntryTempo(exercise.id, setIndex, entryIndex, text)}
-                                      placeholder="例: 2-1-2"
                                       style={styles.tempoInput}
+                                      dense
                                       outlineColor={darkTheme.colors.outline}
                                       activeOutlineColor={getExerciseColor(exercise.type)}
-                                      dense
+                                      placeholder="3010"
                                     />
+                                    <Chip
+                                      mode={entry.assistance ? 'flat' : 'outlined'}
+                                      selected={entry.assistance}
+                                      onPress={() => toggleEntryAssistance(exercise.id, setIndex, entryIndex)}
+                                      style={styles.assistanceChip}
+                                    >
+                                      補助あり
+                                    </Chip>
                                   </View>
                                 </View>
                               )}
                             </View>
                           );
-
-
-
-
-
                         })}
 
-
-
-
-
-
-
-
-
-
-
                         <Button
-
-
-
-
-
                           mode="text"
-
-
-
-
-
-                          icon="plus"
-
-
-
-
-
                           onPress={() => addSetEntry(exercise.id, setIndex)}
-
-
-
-
-
-                          textColor={darkTheme.colors.onSurfaceVariant}
-
-
-
-
-
-                          compact
-
-
-
-
-
                           style={styles.addEntryButton}
-
-
-
-
-
+                          icon="plus"
+                          compact
                         >
-
-
-
-
-
-                          セット内追加
-
-
-
-
-
+                          種目を追加
                         </Button>
-
-
-
-
-
                       </View>
-
-
-
-
-
                     ))}
 
-
-
-
-
                     <Button
-
-
-
-
-
-                      mode="text"
-
-
-
-
-
-                      icon="plus"
-
-
-
-
-
+                      mode="outlined"
                       onPress={() => addSet(exercise.id)}
-
-
-
-
-
-                      textColor={darkTheme.colors.primary}
-
-
-
-
-
+                      style={{ marginTop: 8 }}
                     >
-
-
-
-
-
-                      セット追加
-
-
-
-
-
+                      セットを追加
                     </Button>
-
-
-
-
-
                   </React.Fragment>
-
-
-
-
-
                 )}
-
-
-
-
-
               </Card.Content>
-
-
-
-
-
             </Card>
-
-
-
-
-
           ))}
           </React.Fragment>
-
-
-
-
-
         )}
-
-
-
-
-
       </ScrollView>
 
-
-
-
-
-
-
-
-
-
-
       <Button
-
-
-
-
-
         mode="contained"
-
-
-
-
-
-        icon="plus"
-
-
-
-
-
         onPress={() => setDialogVisible(true)}
-
-
-
-
-
         style={styles.addButton}
-
-
-
-
-
         contentStyle={styles.addButtonContent}
-
-
-
-
-
+        icon="plus"
       >
-
-
-
-
-
-        種目追加
-
-
-
-
-
+        種目を追加
       </Button>
 
-
-
-
-
       <Modal visible={dialogVisible} transparent animationType="none" onRequestClose={closeSheet}>
-
-
-
-
-
         <Pressable style={styles.sheetBackdrop} onPress={closeSheet} />
-
-
-
-
-
         <Animated.View style={[styles.sheetContainer, { transform: [{ translateY: sheetTranslateY }] }]}>
-
-
-
-
-
           <View style={[styles.sheetContent, { paddingBottom: Math.max(12, insets.bottom) }]}>
-
-
-
-
-
-            <View style={styles.sheetHeader}>
-
-
-
-
-
-              <Text style={styles.sheetTitle}>種目を選択</Text>
-
-
-
-
-
-              <IconButton icon="close" size={20} onPress={closeSheet} />
-
-
-
-
-
-            </View>
-
-            <Button
-              mode="outlined"
-              icon="plus"
-              onPress={() => {
-                closeSheet();
-                setTimeout(() => setIsAddExerciseVisible(true), 350);
-              }}
-              style={styles.addExerciseButton}
-              compact
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.categoryRow}
+              contentContainerStyle={styles.categoryRowContent}
             >
-              新しい種目を追加
-            </Button>
-
-
-
-
-
-
-
-
-
-
-
-            <TextInput
-
-
-
-
-
-              mode="outlined"
-
-
-
-
-
-              placeholder=""
-
-
-
-
-
-              value={searchInput}
-
-
-
-
-
-              onChangeText={setSearchInput}
-
-
-
-
-
-              style={styles.searchInput}
-
-
-
-
-
-              outlineColor={darkTheme.colors.outline}
-
-
-
-
-
-              activeOutlineColor={darkTheme.colors.primary}
-
-
-
-
-
-              dense
-
-
-
-
-
-            />
-
-
-
-
-
-
-
-
-
-
-
-            <SegmentedButtons
-
-
-
-
-
-              value={activeTab}
-
-
-
-
-
-              onValueChange={(value) => setActiveTab(value as 'recent' | 'favorite' | 'all')}
-
-
-
-
-
-              buttons={[
-
-
-
-
-
-                { value: 'recent', label: '最近' },
-
-
-
-
-
-                { value: 'favorite', label: 'お気に入り' },
-
-
-
-
-
-                { value: 'all', label: '全て' },
-
-
-
-
-
-              ]}
-
-
-
-
-
-              theme={{
-
-
-
-
-
-                colors: {
-
-
-
-
-
-                  secondaryContainer: darkTheme.colors.surface,
-
-
-
-
-
-                  onSecondaryContainer: darkTheme.colors.textPrimary,
-
-
-
-
-
-                  outline: darkTheme.colors.outline,
-
-
-
-
-
-                },
-
-
-
-
-
-              }}
-
-
-
-
-
-              style={styles.segmentedButtons}
-
-
-
-
-
-            />
-
-
-
-
-
-
-
-
-
-
-
-            {activeTab === 'all' && searchQuery.length === 0 && (
-
-
-
-
-
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryRow}>
-
-
-
-
-
+              <Chip
+                mode={activeCategory === null ? 'flat' : 'outlined'}
+                onPress={() => setActiveCategory(null)}
+                style={styles.categoryChip}
+              >
+                全て
+              </Chip>
+              {categories.map((cat) => (
                 <Chip
-
-
-
-
-
-                  mode={activeCategory === null ? 'flat' : 'outlined'}
-
-
-
-
-
-                  onPress={() => setActiveCategory(null)}
-
-
-
-
-
+                  key={cat}
+                  mode={activeCategory === cat ? 'flat' : 'outlined'}
+                  onPress={() => setActiveCategory(cat)}
                   style={styles.categoryChip}
-
-
-
-
-
                 >
-
-
-
-
-
-                  全て
-
-
-
-
+                  {cat}
                 </Chip>
-
-
-
-
-
-                {categories.map((cat) => (
-
-
-
-
-
-                  <Chip
-
-
-
-
-
-                    key={cat}
-
-
-
-
-
-                    mode={activeCategory === cat ? 'flat' : 'outlined'}
-
-
-
-
-
-                    onPress={() => setActiveCategory(cat)}
-
-
-
-
-
-                    style={styles.categoryChip}
-
-
-
-
-
-                  >
-
-
-
-
-
-                    {cat}
-
-
-
-
-
-                  </Chip>
-
-
-
-
-
-                ))}
-
-
-
-
-
-              </ScrollView>
-
-
-
-
-
-            )}
-
-
-
-
-
-
-
-
-
-
-
-            <ScrollView style={styles.sheetList}>
-
-
-
-
-
+              ))}
+            </ScrollView>
+            <ScrollView style={[styles.sheetList, { maxHeight: sheetListMaxHeight }]}>
               {filteredExercises.map((item) => {
-
-
-
-
-
                 const color = getExerciseColorFromName(item.name);
-
-
-
-
-
                 const isFavorite = !!exercisePreferences[item.id]?.isFavorite;
-
-
-
-
-
                 return (
-
-
-
-
-
                   <Pressable
-
-
-
-
-
                     key={item.id}
-
-
-
-
-
                     style={styles.exerciseRow}
-
-
-
-
-
                     onPress={() => handleAddExercise(item.id as ExerciseType)}
-
-
-
-
-
                   >
-
-
-
-
-
                     <View style={[styles.exerciseAccent, { backgroundColor: color }]} />
-
-
-
-
-
                     <View style={styles.exerciseMain}>
-
-
-
-
-
                       <MaterialCommunityIcons
-
-
-
-
-
                         name={getExerciseIcon(item.id as ExerciseType) as any}
-
-
-
-
-
                         size={20}
-
-
-
-
-
                         color={color}
-
-
-
-
-
                       />
-
-
-
-
-
                       <View style={styles.exerciseText}>
-
-
-
-
-
                         <Text style={styles.exerciseRowTitle}>{item.name}</Text>
-
-
-
-
-
                         {item.category ? (
                           <Text style={styles.exerciseCategory}>{item.category}</Text>
                         ) : null}
-
-
-
-
-
                       </View>
-
-
-
-
-
                     </View>
-
-
-
-
-
                     <IconButton
-
-
-
-
-
                       icon={isFavorite ? 'star' : 'star-outline'}
-
-
-
-
-
                       iconColor={isFavorite ? darkTheme.colors.accent : darkTheme.colors.mutedText}
-
-
-
-
-
                       size={20}
-
-
-
-
-
                       onPress={() => toggleExerciseFavorite(item.id)}
-
-
-
-
-
                     />
-                    {item.isCustom && (                      <IconButton                        icon="delete-outline"                        iconColor={darkTheme.colors.error}                        size={20}                        onPress={() => {                          Alert.alert(                            '種目を削除',                            `「${item.name}」を削除しますか？`,                            [                              { text: 'キャンセル', style: 'cancel' },                              {                                text: '削除',                                style: 'destructive',                                onPress: () => removeCustomExercise(item.id),                              },                            ]                          );                        }}                      />                    )}
-
-
-
-
-
+                    {item.isCustom && (
+                      <IconButton
+                        icon="delete-outline"
+                        iconColor={darkTheme.colors.error}
+                        size={20}
+                        onPress={() => {
+                          Alert.alert(
+                            '種目を削除',
+                            `「${item.name}」を削除しますか？`,
+                            [
+                              { text: 'キャンセル', style: 'cancel' },
+                              {
+                                text: '削除',
+                                style: 'destructive',
+                                onPress: () => removeCustomExercise(item.id),
+                              },
+                            ]
+                          );
+                        }}
+                      />
+                    )}
                   </Pressable>
-
-
-
-
-
                 );
-
-
-
-
-
               })}
-
-
-
-
-
             </ScrollView>
-
-
-
-
-
           </View>
-
-
-
-
-
         </Animated.View>
-
-
-
-
-
       </Modal>
 
-
-
-
-
-
-
-
-
-
-
       <Portal>
-      <Dialog
-        visible={isAddExerciseVisible}
-        onDismiss={() => setIsAddExerciseVisible(false)}
-        style={styles.dialog}
-      >
-        <Dialog.Title>新しい種目を追加</Dialog.Title>
-        <Dialog.Content>
-          <TextInput
-            mode="outlined"
-            label="種目名"
-            value={newExerciseName}
-            onChangeText={(text) => setNewExerciseName(text)}
-            style={styles.addExerciseInput}
-            outlineColor={darkTheme.colors.outline}
-            activeOutlineColor={darkTheme.colors.primary}
-            autoComplete="off"
-            autoCorrect={false}
-            autoCapitalize="none"
-            keyboardType="default"
-            textContentType="none"
-            returnKeyType="done"
-            selectTextOnFocus={false}
-            dense
-          />
-          <SegmentedButtons
-            value={newExerciseKind}
-            onValueChange={(value) => setNewExerciseKind(value as "strength" | "cardio" | "machine" | "freeweight")}
-            buttons={[
-              { value: "strength", label: "筋トレ" },
-              { value: "cardio", label: "有酸素" },
-              { value: "machine", label: "マシン" },
-              { value: "freeweight", label: "フリーウェイト" },
-            ]}
-            style={styles.addExerciseSegments}
-          />
-        </Dialog.Content>
-        <Dialog.Actions>
-          <Button onPress={() => {
-            setIsAddExerciseVisible(false);
-            setNewExerciseName("");
-            setNewExerciseKind("strength");
-          }}>キャンセル</Button>
-          <Button
-            onPress={() => {
-              try {
-                const trimmed = newExerciseName.trim();
-                if (!trimmed) return;
-                addCustomExercise(trimmed, newExerciseKind);
-                setIsAddExerciseVisible(false);
-                setNewExerciseName("");
-                setNewExerciseKind("strength");
-                setActiveTab("all");
-                setActiveCategory(null);
-                setSearchInput("");
-                setSearchQuery("");
-              } catch (error) {
-                console.error('[ERROR] 種目追加失敗:', error);
-              }
-            }}
-            disabled={!newExerciseName.trim()}
-          >
-            保存
-          </Button>
-        </Dialog.Actions>
-      </Dialog>
-
-
-
-
-
-
-        <Dialog visible={datePickerVisible} onDismiss={() => setDatePickerVisible(false)} style={styles.dialog}>
-
-
-
-
-
-          <Dialog.Title>日付を選択</Dialog.Title>
-
-
-
-
-
+        <Dialog
+          visible={isAddExerciseVisible}
+          onDismiss={() => setIsAddExerciseVisible(false)}
+          style={styles.dialog}
+        >
+          <Dialog.Title>新しい種目を追加</Dialog.Title>
           <Dialog.Content>
-
-
-
-
-
-            <Calendar
-
-
-
-
-
-              theme={calendarTheme}
-
-
-
-
-
-              markedDates={{
-
-
-
-
-
-                [selectedDate]: {
-
-
-
-
-
-                  selected: true,
-
-
-
-
-
-                  selectedColor: darkTheme.colors.primary,
-
-
-
-
-
-                },
-
-
-
-
-
-              }}
-
-
-
-
-
-              onDayPress={(day: DateData) => {
-
-
-
-
-
-                setSelectedDate(day.dateString);
-
-
-
-
-
-                setDatePickerVisible(false);
-
-
-
-
-
-              }}
-
-
-
-
-
-              enableSwipeMonths
-
-
-
-
-
+            <TextInput
+              mode="outlined"
+              label="種目名"
+              value={newExerciseName}
+              onChangeText={(text) => setNewExerciseName(text)}
+              style={styles.addExerciseInput}
+              outlineColor={darkTheme.colors.outline}
+              activeOutlineColor={darkTheme.colors.primary}
+              returnKeyType="done"
+              dense
             />
-
-
-
-
-
+            <SegmentedButtons
+              value={newExerciseKind}
+              onValueChange={(value) => setNewExerciseKind(value as "strength" | "cardio" | "machine" | "freeweight")}
+              buttons={[
+                { value: "strength", label: "筋トレ" },
+                { value: "cardio", label: "有酸素" },
+                { value: "machine", label: "マシン" },
+                { value: "freeweight", label: "フリーウェイト" },
+              ]}
+              style={styles.addExerciseSegments}
+            />
           </Dialog.Content>
-
-
-
-
-
           <Dialog.Actions>
-
-
-
-
-
-            <Button onPress={() => setDatePickerVisible(false)}>キャンセル</Button>
-
-
-
-
-
+            <Button onPress={() => {
+              setIsAddExerciseVisible(false);
+              setNewExerciseName("");
+              setNewExerciseKind("strength");
+            }}>キャンセル</Button>
+            <Button
+              onPress={() => {
+                try {
+                  const trimmed = newExerciseName.trim();
+                  if (!trimmed) return;
+                  addCustomExercise(trimmed, newExerciseKind);
+                  setIsAddExerciseVisible(false);
+                  setNewExerciseName("");
+                  setNewExerciseKind("strength");
+                  setActiveCategory(null);
+                } catch (error) {
+                  console.error('[ERROR] 種目追加失敗:', error);
+                }
+              }}
+              disabled={!newExerciseName.trim()}
+            >
+              保存
+            </Button>
           </Dialog.Actions>
-
-
-
-
-
         </Dialog>
 
-
-
-
-
+        <Dialog visible={datePickerVisible} onDismiss={() => setDatePickerVisible(false)} style={styles.dialog}>
+          <Dialog.Title>日付を選択</Dialog.Title>
+          <Dialog.Content>
+            <Calendar
+              theme={calendarTheme}
+              markedDates={{
+                [selectedDate]: {
+                  selected: true,
+                  selectedColor: darkTheme.colors.primary,
+                },
+              }}
+              onDayPress={(day: DateData) => {
+                setSelectedDate(day.dateString);
+                setDatePickerVisible(false);
+              }}
+              enableSwipeMonths
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setDatePickerVisible(false)}>キャンセル</Button>
+          </Dialog.Actions>
+        </Dialog>
       </Portal>
-
-
-
-
-
     </View>
 
 
@@ -3709,7 +2643,7 @@ const styles = StyleSheet.create({
 
 
 
-    height: '70%',
+    maxHeight: '70%',
 
 
 
@@ -3746,12 +2680,6 @@ const styles = StyleSheet.create({
 
 
   sheetContent: {
-
-
-
-
-
-    flex: 1,
 
 
 
@@ -3835,25 +2763,6 @@ const styles = StyleSheet.create({
 
 
 
-  searchInput: {
-
-
-
-
-
-    backgroundColor: darkTheme.colors.surfaceVariant,
-
-
-
-
-
-    marginBottom: 12,
-
-
-
-
-
-  },
   addExerciseButton: {
     marginBottom: 12,
   },
@@ -3869,18 +2778,8 @@ const styles = StyleSheet.create({
 
 
 
-  segmentedButtons: {
-
-
-
-
-
-    marginBottom: 12,
-
-
-
-
-
+  categoryRowContent: {
+    paddingHorizontal: 12,
   },
 
 
@@ -3924,12 +2823,7 @@ const styles = StyleSheet.create({
 
 
   sheetList: {
-
-
-
-
-
-    flex: 1,
+    minHeight: 0,
 
 
 
@@ -4128,6 +3022,23 @@ const styles = StyleSheet.create({
 
 
   },});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
