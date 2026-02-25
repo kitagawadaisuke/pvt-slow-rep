@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, ScrollView, StyleSheet, TextInput as RNTextInput, Alert } from 'react-native';
-import { Text, Card, Button, IconButton, TextInput, Chip, Portal, Dialog } from 'react-native-paper';
+import { View, ScrollView, StyleSheet, TextInput as RNTextInput, Alert, Pressable } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
+import { Text, Card, Button, IconButton, TextInput, Portal, Dialog } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Calendar, DateData } from 'react-native-calendars';
 import { useWorkoutStore } from '@/stores/workoutStore';
 import { darkTheme, colors, calendarTheme } from '@/constants/theme';
-import { ExerciseType, EXERCISE_NAMES, EXERCISE_ICONS, isDurationBasedExercise, DURATION_PRESETS } from '@/types/workout';
+import { ExerciseType, BuiltinExerciseType, EXERCISE_ICONS, isDurationBasedExercise, DURATION_PRESETS, BUILTIN_EXERCISE_NAMES } from '@/types/workout';
 
 // IME対応TextInputコンポーネント
 interface IMESafeTextInputProps {
@@ -98,8 +99,6 @@ export default function HomeScreen() {
     updateEntryWeight,
     updateEntryVariation,
     updateEntryTempo,
-    toggleEntryAssistance,
-    toggleSetCompleted,
     updateDurationMinutes,
     customExercises,
     addCustomExercise,
@@ -107,17 +106,20 @@ export default function HomeScreen() {
     stopWorkoutTimer,
     resetWorkoutTimer,
     removeCustomExercise,
-    copyLatestWorkout,
     saveTemplate,
     getTemplates,
     deleteTemplate,
     applyTemplate,
+    hiddenBuiltinExercises,
+    hideBuiltinExercise,
+    showBuiltinExercise,
   } = useWorkoutStore();
 
   const selectedWorkout = getWorkoutByDate(selectedDate);
   const exercises = selectedWorkout?.exercises || [];
 
-  const exerciseTypes: ExerciseType[] = ['pushup', 'squat', 'pullup', 'bodypump', 'bodycombat', 'leapfight'];
+  const allBuiltinExerciseTypes: BuiltinExerciseType[] = ['pushup', 'squat', 'pullup', 'bodypump', 'bodycombat', 'leapfight'];
+  const exerciseTypes = allBuiltinExerciseTypes.filter((t) => !hiddenBuiltinExercises.includes(t));
 
   const handleAddExercise = (type: ExerciseType) => {
     addExercise(type);
@@ -127,13 +129,13 @@ export default function HomeScreen() {
   const getExerciseColor = (type: ExerciseType) => {
     const customExercise = customExercises.find((e) => e.id === type);
     if (customExercise) return customExercise.color;
-    return colors[type] || colors.strength;
+    return (colors as Record<string, string>)[type] || colors.strength;
   };
 
   const getExerciseIcon = (type: ExerciseType): string => {
     const customExercise = customExercises.find((e) => e.id === type);
     if (customExercise) return customExercise.icon;
-    return EXERCISE_ICONS[type] || 'dumbbell';
+    return (EXERCISE_ICONS as Record<string, string>)[type] || 'dumbbell';
   };
 
   const handleAddCustomExercise = () => {
@@ -161,6 +163,10 @@ export default function HomeScreen() {
     return () => clearInterval(intervalId);
   }, [workoutTimerRunning]);
 
+  const now = new Date();
+  const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const isToday = selectedDate === todayDate;
+
   const formattedDate = new Date(`${selectedDate}T00:00:00`).toLocaleDateString('ja-JP', {
     year: 'numeric',
     month: 'long',
@@ -185,14 +191,26 @@ export default function HomeScreen() {
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         <View style={styles.dateRow}>
           <Text style={styles.dateText}>{formattedDate}</Text>
-          <Button
-            mode="text"
-            onPress={() => setDatePickerVisible(true)}
-            compact
-            textColor={darkTheme.colors.onSurfaceVariant}
-          >
-            日付変更
-          </Button>
+          <View style={styles.dateActions}>
+            {!isToday && (
+              <Button
+                mode="text"
+                onPress={() => setSelectedDate(todayDate)}
+                compact
+                textColor={darkTheme.colors.primary}
+              >
+                今日
+              </Button>
+            )}
+            <Button
+              mode="text"
+              onPress={() => setDatePickerVisible(true)}
+              compact
+              textColor={darkTheme.colors.onSurfaceVariant}
+            >
+              日付変更
+            </Button>
+          </View>
         </View>
         {exercises.length === 0 && (
           <Button
@@ -266,23 +284,19 @@ export default function HomeScreen() {
               />
               <Card.Content>
                 {isDurationBasedExercise(exercise.type) ? (
-                  <View>
-                    <Text style={styles.setLabel}>時間を入力</Text>
+                  <View style={styles.durationContainer}>
                     <View style={styles.durationButtons}>
                       {DURATION_PRESETS.map((mins) => (
-                        <Chip
+                        <Button
                           key={mins}
-                          mode={exercise.durationMinutes === mins ? 'flat' : 'outlined'}
-                          selected={exercise.durationMinutes === mins}
+                          mode={exercise.durationMinutes === mins ? 'contained' : 'outlined'}
                           onPress={() => updateDurationMinutes(exercise.id, mins)}
-                          style={[
-                            styles.durationChip,
-                            exercise.durationMinutes === mins && { backgroundColor: getExerciseColor(exercise.type) }
-                          ]}
-                          textStyle={exercise.durationMinutes === mins ? { color: '#fff' } : { color: darkTheme.colors.onSurface }}
+                          style={styles.durationChip}
+                          buttonColor={exercise.durationMinutes === mins ? getExerciseColor(exercise.type) : undefined}
+                          compact
                         >
                           {mins}分
-                        </Chip>
+                        </Button>
                       ))}
                     </View>
                   </View>
@@ -298,12 +312,6 @@ export default function HomeScreen() {
                               iconColor={darkTheme.colors.onSurfaceVariant}
                               size={18}
                               onPress={() => copySet(exercise.id, setIndex)}
-                            />
-                            <IconButton
-                              icon={set.completed ? 'check-circle' : 'circle-outline'}
-                              iconColor={set.completed ? '#22c55e' : darkTheme.colors.onSurfaceVariant}
-                              size={20}
-                              onPress={() => toggleSetCompleted(exercise.id, setIndex)}
                             />
                             <IconButton
                               icon="close"
@@ -442,7 +450,7 @@ export default function HomeScreen() {
           mode="contained"
           icon="plus"
           onPress={() => setDialogVisible(true)}
-          style={[styles.addButton, exercises.length > 0 && { flex: 1 }]}
+          style={[styles.addButton, { flex: 1 }]}
           contentStyle={styles.addButtonContent}
           buttonColor="#10b981"
         >
@@ -451,12 +459,12 @@ export default function HomeScreen() {
         {exercises.length > 0 && (
           <Button
             mode="outlined"
-            icon="content-save"
+            icon="bookmark-plus-outline"
             onPress={() => setSaveTemplateDialogVisible(true)}
             style={[styles.addButton, { flex: 1, marginLeft: 8 }]}
             contentStyle={styles.addButtonContent}
           >
-            保存
+            メニュー保存
           </Button>
         )}
       </View>
@@ -467,30 +475,62 @@ export default function HomeScreen() {
           <Dialog.Content>
             <ScrollView style={styles.exerciseList}>
               {exerciseTypes.map((type) => (
-                <Button
+                <Swipeable
                   key={type}
-                  mode="outlined"
-                  onPress={() => handleAddExercise(type)}
-                  style={[styles.exerciseButton, { borderColor: getExerciseColor(type) }]}
-                  labelStyle={{ color: getExerciseColor(type) }}
-                  icon={() => (
-                    <MaterialCommunityIcons
-                      name={getExerciseIcon(type) as any}
-                      size={20}
-                      color={getExerciseColor(type)}
-                    />
+                  renderRightActions={() => (
+                    <Pressable
+                      style={styles.swipeDeleteAction}
+                      onPress={() => hideBuiltinExercise(type)}
+                    >
+                      <MaterialCommunityIcons name="delete-outline" size={22} color="white" />
+                    </Pressable>
                   )}
-                  contentStyle={styles.exerciseButtonContent}
+                  overshootRight={false}
                 >
-                  {EXERCISE_NAMES[type]}
-                </Button>
+                  <Button
+                    mode="outlined"
+                    onPress={() => handleAddExercise(type)}
+                    style={[styles.exerciseButton, { borderColor: getExerciseColor(type) }]}
+                    labelStyle={{ color: getExerciseColor(type) }}
+                    icon={() => (
+                      <MaterialCommunityIcons
+                        name={getExerciseIcon(type) as any}
+                        size={20}
+                        color={getExerciseColor(type)}
+                      />
+                    )}
+                    contentStyle={styles.exerciseButtonContent}
+                  >
+                    {BUILTIN_EXERCISE_NAMES[type]}
+                  </Button>
+                </Swipeable>
               ))}
               {customExercises.map((custom) => (
-                <View key={custom.id} style={styles.customExerciseRow}>
+                <Swipeable
+                  key={custom.id}
+                  renderRightActions={() => (
+                    <Pressable
+                      style={styles.swipeDeleteAction}
+                      onPress={() => {
+                        Alert.alert(
+                          'カスタム種目の削除',
+                          `「${custom.name}」を削除しますか？`,
+                          [
+                            { text: 'キャンセル', style: 'cancel' },
+                            { text: '削除', style: 'destructive', onPress: () => removeCustomExercise(custom.id) },
+                          ]
+                        );
+                      }}
+                    >
+                      <MaterialCommunityIcons name="delete-outline" size={22} color="white" />
+                    </Pressable>
+                  )}
+                  overshootRight={false}
+                >
                   <Button
                     mode="outlined"
                     onPress={() => handleAddExercise(custom.id)}
-                    style={[styles.exerciseButton, styles.customExerciseButton, { borderColor: custom.color }]}
+                    style={[styles.exerciseButton, { borderColor: custom.color }]}
                     labelStyle={{ color: custom.color }}
                     icon={() => (
                       <MaterialCommunityIcons
@@ -503,23 +543,24 @@ export default function HomeScreen() {
                   >
                     {custom.name}
                   </Button>
-                  <IconButton
-                    icon="delete-outline"
-                    iconColor={darkTheme.colors.error}
-                    size={20}
-                    onPress={() => {
-                      Alert.alert(
-                        'カスタム種目の削除',
-                        `「${custom.name}」を削除しますか？`,
-                        [
-                          { text: 'キャンセル', style: 'cancel' },
-                          { text: '削除', style: 'destructive', onPress: () => removeCustomExercise(custom.id) },
-                        ]
-                      );
-                    }}
-                  />
-                </View>
+                </Swipeable>
               ))}
+              {hiddenBuiltinExercises.length > 0 && (
+                <View style={styles.hiddenExercisesSection}>
+                  <Text style={styles.hiddenExercisesLabel}>非表示の種目</Text>
+                  {hiddenBuiltinExercises.map((type) => (
+                    <Button
+                      key={type}
+                      mode="outlined"
+                      onPress={() => showBuiltinExercise(type)}
+                      style={styles.hiddenExerciseButton}
+                      icon="eye-outline"
+                    >
+                      {BUILTIN_EXERCISE_NAMES[type as keyof typeof BUILTIN_EXERCISE_NAMES] || type}
+                    </Button>
+                  ))}
+                </View>
+              )}
               <Button
                 mode="contained"
                 onPress={() => {
@@ -737,14 +778,17 @@ const styles = StyleSheet.create({
   dateText: {
     fontSize: 18,
     color: darkTheme.colors.onSurface,
-    marginBottom: 16,
     fontWeight: '600',
   },
   dateRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: 12,
+  },
+  dateActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   copyButton: {
     marginBottom: 12,
@@ -864,13 +908,20 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     marginTop: 4,
   },
+  durationContainer: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    width: '100%',
+  },
   durationButtons: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 8,
+    gap: 12,
+    marginTop: 12,
+    justifyContent: 'center',
+    width: '100%',
   },
   durationChip: {
-    marginRight: 4,
+    flex: 1,
   },
   addButton: {
     // position moved to bottomButtons
@@ -962,5 +1013,38 @@ const styles = StyleSheet.create({
     color: darkTheme.colors.onSurfaceVariant,
     textAlign: 'center',
     paddingVertical: 20,
+  },
+  textInput: {
+    backgroundColor: darkTheme.colors.surfaceVariant,
+    color: darkTheme.colors.onSurface,
+    borderWidth: 1,
+    borderColor: darkTheme.colors.outline,
+    borderRadius: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+  },
+  swipeDeleteAction: {
+    backgroundColor: '#64748b',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 64,
+    marginBottom: 8,
+    borderRadius: 8,
+  },
+  hiddenExercisesSection: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: darkTheme.colors.outline,
+  },
+  hiddenExercisesLabel: {
+    fontSize: 12,
+    color: darkTheme.colors.onSurfaceVariant,
+    marginBottom: 6,
+  },
+  hiddenExerciseButton: {
+    marginBottom: 8,
+    opacity: 0.6,
   },
 });

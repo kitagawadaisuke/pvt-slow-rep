@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, StyleSheet, Vibration } from 'react-native';
-import { Text, Button, SegmentedButtons, Card, IconButton, TextInput } from 'react-native-paper';
+import { Text, Button, SegmentedButtons, Card, IconButton } from 'react-native-paper';
 import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
 import { useWorkoutStore } from '@/stores/workoutStore';
@@ -11,8 +11,6 @@ export default function TimerScreen() {
   const {
     timerSettings,
     updateTimerSettings,
-    startWorkoutTimer,
-    stopWorkoutTimer,
     workoutTimerRunning,
     getSelectedWorkoutDurationSeconds,
     addTimerRecord,
@@ -33,6 +31,15 @@ export default function TimerScreen() {
   const [currentBeat, setCurrentBeat] = useState(0);
   const [barCount, setBarCount] = useState(0);
   const metronomeRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // タイミング精度向上のためにrefでビートを管理
+  const currentBeatRef = useRef(0);
+  const beatsRef = useRef(beats);
+
+  // カウントダウン
+  const [countdownSeconds, setCountdownSeconds] = useState(0); // 0=なし
+  const [countdownRemaining, setCountdownRemaining] = useState(0);
+  const [isCountingDown, setIsCountingDown] = useState(false);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Feedback mode
   const [feedbackMode, setFeedbackMode] = useState<FeedbackMode>(timerSettings.feedbackMode || 'both');
@@ -45,10 +52,15 @@ export default function TimerScreen() {
   const intervalOptions = [30, 60, 90];
 
   useEffect(() => {
+    beatsRef.current = beats;
+  }, [beats]);
+
+  useEffect(() => {
     setupAudio();
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (metronomeRef.current) clearInterval(metronomeRef.current);
+      if (countdownRef.current) clearInterval(countdownRef.current);
       cleanupAudio();
       Speech.stop();
     };
@@ -150,44 +162,39 @@ export default function TimerScreen() {
     };
   }, [isRunning, intervalTime, playTimerEnd]);
 
-  // Metronome Logic
+  // Metronome Logic（refでビートを管理しタイミング精度を向上）
   useEffect(() => {
     if (isMetronomeRunning) {
+      // beats-1 から始めることで最初のtickがbeat 0（アクセント）になる
+      currentBeatRef.current = beatsRef.current - 1;
       const intervalMs = (60 / bpm) * 1000;
       metronomeRef.current = setInterval(() => {
-        setCurrentBeat((prev) => {
-          const nextBeat = (prev + 1) % beats;
-          const isAccent = nextBeat === 0 || (beats === 8 && nextBeat === 4);
-          playBeep(isAccent);
+        const nextBeat = (currentBeatRef.current + 1) % beatsRef.current;
+        currentBeatRef.current = nextBeat;
+        const isAccent = nextBeat === 0 || (beatsRef.current === 8 && nextBeat === 4);
+        // playBeepをstate setter外で直接呼び出し（タイミング精度向上）
+        playBeep(isAccent);
 
-          if (nextBeat === 0) {
-            setBarCount((prevBars) => {
-              const newBarCount = prevBars + 1;
-              Speech.speak(`${newBarCount}`);
-              return newBarCount;
-            });
-          }
+        if (nextBeat === 0) {
+          setBarCount((prevBars) => {
+            const newBarCount = prevBars + 1;
+            Speech.speak(`${newBarCount}`);
+            return newBarCount;
+          });
+        }
 
-          return nextBeat;
-        });
+        setCurrentBeat(nextBeat);
       }, intervalMs);
     } else {
       if (metronomeRef.current) clearInterval(metronomeRef.current);
+      currentBeatRef.current = 0;
       setCurrentBeat(0);
     }
 
     return () => {
       if (metronomeRef.current) clearInterval(metronomeRef.current);
     };
-  }, [isMetronomeRunning, bpm, beats, playBeep]);
-
-  useEffect(() => {
-    if (isMetronomeRunning) {
-      startWorkoutTimer();
-    } else {
-      stopWorkoutTimer();
-    }
-  }, [isMetronomeRunning, startWorkoutTimer, stopWorkoutTimer]);
+  }, [isMetronomeRunning, bpm, playBeep]);
 
   useEffect(() => {
     if (!workoutTimerRunning) return;
@@ -247,6 +254,41 @@ export default function TimerScreen() {
   const resetBarCount = () => {
     setBarCount(0);
     setCurrentBeat(0);
+    currentBeatRef.current = 0;
+  };
+
+  const startMetronomeWithCountdown = () => {
+    if (countdownSeconds > 0) {
+      setCountdownRemaining(countdownSeconds);
+      setIsCountingDown(true);
+      countdownRef.current = setInterval(() => {
+        setCountdownRemaining((prev) => {
+          // ラスト3秒を読み上げ
+          if (prev <= 3 && prev > 0) {
+            Speech.speak(`${prev}`);
+          }
+          if (prev <= 1) {
+            clearInterval(countdownRef.current!);
+            setIsCountingDown(false);
+            setIsMetronomeRunning(true);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      setIsMetronomeRunning(true);
+    }
+  };
+
+  const stopMetronome = () => {
+    if (isCountingDown) {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+      setIsCountingDown(false);
+      setCountdownRemaining(0);
+    } else {
+      setIsMetronomeRunning(false);
+    }
   };
 
   const cycleFeedbackMode = () => {
@@ -316,10 +358,11 @@ export default function TimerScreen() {
         {feedbackModeLabel[feedbackMode]}
       </Button>
 
-      {mode === 'interval' ? (
-        <View style={styles.content}>
+      <View style={styles.content}>
+        {/* カード（固定高さで両モード統一） */}
+        {mode === 'interval' ? (
           <Card style={styles.timerCard}>
-            <Card.Content style={styles.timerContent}>
+            <View style={styles.timerContent}>
               <Text style={styles.timerDisplay}>{formatTime(remainingTime)}</Text>
               <Text style={styles.timerLabel}>
                 {isRunning ? '残り時間' : '設定時間'}
@@ -333,40 +376,121 @@ export default function TimerScreen() {
                 style={styles.recordButton}
                 size={20}
               />
-            </Card.Content>
+            </View>
           </Card>
+        ) : (
+          <Card style={styles.timerCard}>
+            <View style={styles.metronomeContent}>
+              {isCountingDown ? (
+                <>
+                  <Text style={styles.countdownDisplay}>{countdownRemaining}</Text>
+                  <Text style={styles.bpmLabel}>準備中...</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.bpmDisplay}>{bpm}</Text>
+                  <Text style={styles.bpmLabel}>BPM</Text>
+                  <Text style={styles.barCountLabel}>セット数: {barCount}</Text>
+                  <View style={styles.beatIndicators}>
+                    {Array.from({ length: beats }).map((_, i) => (
+                      <View
+                        key={i}
+                        style={[
+                          styles.beatDot,
+                          currentBeat === i && isMetronomeRunning && styles.beatDotActive,
+                          isAccentBeat(i) && styles.beatDotAccent,
+                          currentBeat === i && isMetronomeRunning && isAccentBeat(i) && styles.beatDotAccentActive,
+                        ]}
+                      />
+                    ))}
+                  </View>
+                  <IconButton
+                    icon="bookmark-outline"
+                    mode="contained-tonal"
+                    iconColor="#94a3b8"
+                    containerColor="#334155"
+                    onPress={recordMetronome}
+                    style={styles.recordButton}
+                    size={20}
+                  />
+                </>
+              )}
+            </View>
+          </Card>
+        )}
 
-          <View style={styles.intervalOptions}>
-            {intervalOptions.map((seconds) => (
-              <Button
-                key={seconds}
-                mode={intervalTime === seconds ? 'contained' : 'outlined'}
-                onPress={() => selectIntervalTime(seconds)}
-                style={styles.intervalButton}
-                compact
-              >
-                {formatTime(seconds)}
-              </Button>
-            ))}
-          </View>
+        {/* モード固有オプション（固定高さで位置を安定化） */}
+        <View style={styles.modeOptions}>
+          {mode === 'interval' ? (
+            <View style={styles.intervalOptions}>
+              {intervalOptions.map((seconds) => (
+                <Button
+                  key={seconds}
+                  mode={intervalTime === seconds ? 'contained' : 'outlined'}
+                  onPress={() => selectIntervalTime(seconds)}
+                  style={styles.intervalButton}
+                  compact
+                >
+                  {formatTime(seconds)}
+                </Button>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.metronomeOptions}>
+              <View style={styles.metronomeActions}>
+                <Button
+                  mode="outlined"
+                  onPress={toggleBeats}
+                  style={styles.beatsButton}
+                >
+                  {beats}拍子
+                </Button>
+                <Button
+                  mode="outlined"
+                  onPress={resetBarCount}
+                  style={styles.resetButton}
+                >
+                  リセット
+                </Button>
+              </View>
+              <View style={styles.countdownRow}>
+                <Text style={styles.countdownSettingLabel}>準備</Text>
+                {[0, 10, 15, 20].map((sec) => (
+                  <Button
+                    key={sec}
+                    mode={countdownSeconds === sec ? 'contained' : 'outlined'}
+                    onPress={() => setCountdownSeconds(sec)}
+                    style={styles.countdownOptionButton}
+                    compact
+                  >
+                    {sec === 0 ? 'なし' : `${sec}s`}
+                  </Button>
+                ))}
+              </View>
+            </View>
+          )}
+        </View>
 
-          <View style={styles.intervalAdjustControls}>
-            <IconButton
-              icon="minus"
-              mode="contained"
-              onPress={() => adjustIntervalTime(-10)}
-              size={28}
-            />
-            <IconButton
-              icon="plus"
-              mode="contained"
-              onPress={() => adjustIntervalTime(10)}
-              size={28}
-            />
-          </View>
+        {/* +-ボタン（スタートの直上・共通） */}
+        <View style={styles.adjustControls}>
+          <IconButton
+            icon="minus"
+            mode="contained"
+            onPress={mode === 'interval' ? () => adjustIntervalTime(-10) : () => adjustBpm(-1)}
+            size={28}
+          />
+          <IconButton
+            icon="plus"
+            mode="contained"
+            onPress={mode === 'interval' ? () => adjustIntervalTime(10) : () => adjustBpm(1)}
+            size={28}
+          />
+        </View>
 
-          <View style={styles.buttonRow}>
-            {isRunning ? (
+        {/* スタートボタン（常に最下部・固定高さ） */}
+        <View style={styles.buttonRow}>
+          {mode === 'interval' ? (
+            isRunning ? (
               <Button
                 mode="contained"
                 onPress={pauseInterval}
@@ -388,7 +512,7 @@ export default function TimerScreen() {
                   再開
                 </Button>
                 <Button
-                  mode="outlined"
+                  mode="contained-tonal"
                   onPress={resetInterval}
                   style={[styles.mainButton, { flex: 1, marginLeft: 8 }]}
                   contentStyle={styles.mainButtonContent}
@@ -407,88 +531,20 @@ export default function TimerScreen() {
               >
                 スタート
               </Button>
-            )}
-          </View>
-        </View>
-      ) : (
-        <View style={styles.content}>
-          <Card style={styles.timerCard}>
-            <Card.Content style={styles.metronomeContent}>
-              <Text style={styles.bpmDisplay}>{bpm}</Text>
-              <Text style={styles.bpmLabel}>BPM</Text>
-              <Text style={styles.barCountLabel}>小節数: {barCount}</Text>
-
-              <View style={styles.beatIndicators}>
-                {Array.from({ length: beats }).map((_, i) => (
-                  <View
-                    key={i}
-                    style={[
-                      styles.beatDot,
-                      currentBeat === i && isMetronomeRunning && styles.beatDotActive,
-                      isAccentBeat(i) && styles.beatDotAccent,
-                      currentBeat === i && isMetronomeRunning && isAccentBeat(i) && styles.beatDotAccentActive,
-                    ]}
-                  />
-                ))}
-              </View>
-
-              <IconButton
-                icon="bookmark-outline"
-                mode="contained-tonal"
-                iconColor="#94a3b8"
-                containerColor="#334155"
-                onPress={recordMetronome}
-                style={styles.recordButton}
-                size={20}
-              />
-            </Card.Content>
-          </Card>
-
-          <View style={styles.bpmControls}>
-            <IconButton
-              icon="minus"
-              mode="contained"
-              onPress={() => adjustBpm(-1)}
-              size={28}
-            />
-            <IconButton
-              icon="plus"
-              mode="contained"
-              onPress={() => adjustBpm(1)}
-              size={28}
-            />
-          </View>
-
-          <View style={styles.metronomeActions}>
-            <Button
-              mode="outlined"
-              onPress={toggleBeats}
-              style={styles.beatsButton}
-            >
-              {beats}拍子
-            </Button>
-            <Button
-              mode="outlined"
-              onPress={resetBarCount}
-              style={styles.resetButton}
-            >
-              リセット
-            </Button>
-          </View>
-
-          <View style={styles.buttonRow}>
+            )
+          ) : (
             <Button
               mode="contained"
-              onPress={() => setIsMetronomeRunning(!isMetronomeRunning)}
-              style={[styles.mainButton, isMetronomeRunning && styles.stopButton]}
+              onPress={isMetronomeRunning || isCountingDown ? stopMetronome : startMetronomeWithCountdown}
+              style={[styles.mainButton, (isMetronomeRunning || isCountingDown) && styles.stopButton]}
               contentStyle={styles.mainButtonContent}
-              icon={isMetronomeRunning ? 'stop' : 'play'}
+              icon={isMetronomeRunning || isCountingDown ? 'stop' : 'play'}
             >
-              {isMetronomeRunning ? 'ストップ' : 'スタート'}
+              {isMetronomeRunning ? 'ストップ' : isCountingDown ? 'キャンセル' : 'スタート'}
             </Button>
-          </View>
+          )}
         </View>
-      )}
+      </View>
     </View>
   );
 }
@@ -573,20 +629,31 @@ const generateAccentBeep = (): string => {
 };
 
 const generateTimerEndBeep = (): string => {
+  // Eメジャートライアド上昇チャイム（E5→G#5→B5）
   const sampleRate = 22050;
-  const duration = 0.8;
+  const duration = 1.5;
   const samples = Math.floor(sampleRate * duration);
   const data: number[] = [];
 
+  const tones = [
+    { freq: 659.3, delay: 0.0, amp: 0.65 },   // E5
+    { freq: 830.6, delay: 0.45, amp: 0.65 },   // G#5
+    { freq: 987.8, delay: 0.90, amp: 0.75 },   // B5
+  ];
+
   for (let i = 0; i < samples; i++) {
     const t = i / sampleRate;
-    // 3拍のビープ音
-    const beepPhase = (t * 3) % 1;
-    const isOn = beepPhase < 0.4;
-    const frequency = 1000;
-    const envelope = isOn ? 1 : 0;
-    const value = Math.sin(2 * Math.PI * frequency * t) * 0.8 * envelope;
-    data.push(Math.floor((value + 1) * 127.5));
+    let value = 0;
+    for (const tone of tones) {
+      if (t >= tone.delay) {
+        const localT = t - tone.delay;
+        const envelope = Math.exp(-localT * 3.5) * tone.amp;
+        value += Math.sin(2 * Math.PI * tone.freq * localT) * envelope;
+        value += Math.sin(2 * Math.PI * tone.freq * 2 * localT) * envelope * 0.15;
+      }
+    }
+    const clipped = Math.max(-1, Math.min(1, value));
+    data.push(Math.floor((clipped + 1) * 127.5));
   }
 
   const header = generateWavHeader(data.length, sampleRate);
@@ -619,16 +686,24 @@ const styles = StyleSheet.create({
   timerCard: {
     backgroundColor: darkTheme.colors.surface,
     width: '100%',
-    marginBottom: 24,
-    minHeight: 260,
+    marginBottom: 16,
+    height: 260,
   },
   timerContent: {
+    height: 260,
     alignItems: 'center',
-    paddingVertical: 40,
+    justifyContent: 'center',
   },
   metronomeContent: {
+    height: 260,
     alignItems: 'center',
-    paddingVertical: 40,
+    justifyContent: 'center',
+  },
+  modeOptions: {
+    height: 88,
+    width: '100%',
+    justifyContent: 'center',
+    marginBottom: 8,
   },
   timerDisplay: {
     fontSize: 72,
@@ -645,7 +720,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   bpmDisplay: {
-    fontSize: 80,
+    fontSize: 68,
     fontWeight: '200',
     color: darkTheme.colors.primary,
   },
@@ -661,8 +736,8 @@ const styles = StyleSheet.create({
   },
   beatIndicators: {
     flexDirection: 'row',
-    marginTop: 24,
-    gap: 12,
+    marginTop: 12,
+    gap: 10,
   },
   beatDot: {
     width: 20,
@@ -684,16 +759,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#f59e0b',
     transform: [{ scale: 1.4 }],
   },
-  bpmControls: {
+  adjustControls: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 16,
+    marginBottom: 8,
+  },
+  metronomeOptions: {
+    width: '100%',
+    gap: 6,
   },
   metronomeActions: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 8,
+    width: '100%',
   },
   beatsButton: {
     marginBottom: 0,
@@ -702,12 +781,32 @@ const styles = StyleSheet.create({
   resetButton: {
     flex: 1,
   },
+  countdownRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    width: '100%',
+  },
+  countdownSettingLabel: {
+    fontSize: 12,
+    color: darkTheme.colors.onSurfaceVariant,
+    marginRight: 2,
+  },
+  countdownOptionButton: {
+    flex: 1,
+    minWidth: 0,
+  },
+  countdownDisplay: {
+    fontSize: 80,
+    fontWeight: '200',
+    color: darkTheme.colors.secondary,
+    fontVariant: ['tabular-nums'],
+  },
   buttonRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 16,
-    marginTop: 'auto' as any,
-    paddingTop: 16,
+    marginTop: 8,
     width: '100%',
   },
   mainButton: {
@@ -715,7 +814,7 @@ const styles = StyleSheet.create({
     backgroundColor: darkTheme.colors.primary,
   },
   mainButtonContent: {
-    paddingVertical: 12,
+    paddingVertical: 8,
   },
   stopButton: {
     backgroundColor: darkTheme.colors.error,
@@ -732,15 +831,9 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: 'center',
     alignItems: 'center',
+    width: '100%',
   },
   intervalButton: {
     minWidth: 70,
-  },
-  intervalAdjustControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 16,
-    justifyContent: 'center',
   },
 });

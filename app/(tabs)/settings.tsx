@@ -15,9 +15,13 @@ export default function SettingsScreen() {
 
   const workouts = getAllWorkouts();
 
+  const toLocalDateString = (d: Date) => {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
   const getDateRange = (range: 'all' | 'week' | 'month') => {
     const today = new Date();
-    const endDate = today.toISOString().split('T')[0];
+    const endDate = toLocalDateString(today);
 
     if (range === 'all') {
       return { start: '1970-01-01', end: endDate };
@@ -31,7 +35,7 @@ export default function SettingsScreen() {
     }
 
     return {
-      start: startDate.toISOString().split('T')[0],
+      start: toLocalDateString(startDate),
       end: endDate,
     };
   };
@@ -118,11 +122,11 @@ export default function SettingsScreen() {
                 <Text style={styles.statLabel}>総セット数</Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statValueSmall}>{formatDurationHM(yearlyStats.totalDurationSeconds)}</Text>
+                <Text style={styles.statValue}>{formatDurationHM(yearlyStats.totalDurationSeconds)}</Text>
                 <Text style={styles.statLabel}>筋トレ時間</Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statValueSmall}>{formatDurationHM(yearlyStats.totalExerciseDurationMinutes * 60)}</Text>
+                <Text style={styles.statValue}>{formatDurationHM(yearlyStats.totalExerciseDurationMinutes * 60)}</Text>
                 <Text style={styles.statLabel}>有酸素・スタジオ</Text>
               </View>
             </View>
@@ -138,11 +142,11 @@ export default function SettingsScreen() {
                 <Text style={styles.statLabel}>総セット数</Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statValueSmall}>{formatDurationHM(monthlyStats.totalDurationSeconds)}</Text>
+                <Text style={styles.statValue}>{formatDurationHM(monthlyStats.totalDurationSeconds)}</Text>
                 <Text style={styles.statLabel}>筋トレ時間</Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statValueSmall}>{formatDurationHM(monthlyStats.totalExerciseDurationMinutes * 60)}</Text>
+                <Text style={styles.statValue}>{formatDurationHM(monthlyStats.totalExerciseDurationMinutes * 60)}</Text>
                 <Text style={styles.statLabel}>有酸素・スタジオ</Text>
               </View>
             </View>
@@ -302,12 +306,7 @@ const styles = StyleSheet.create({
     minWidth: '40%',
   },
   statValue: {
-    fontSize: 32,
-    fontWeight: '600',
-    color: darkTheme.colors.primary,
-  },
-  statValueSmall: {
-    fontSize: 20,
+    fontSize: 28,
     fontWeight: '600',
     color: darkTheme.colors.primary,
   },

@@ -24,6 +24,7 @@ interface WorkoutState {
   workoutTimerTargetDate: string | null;
   customExercises: CustomExerciseType[];
   templates: WorkoutTemplate[];
+  hiddenBuiltinExercises: string[];
 
   // Actions
   setSelectedDate: (date: string) => void;
@@ -55,11 +56,14 @@ interface WorkoutState {
   getCustomExercise: (id: string) => CustomExerciseType | undefined;
   addTimerRecord: (record: Omit<TimerRecord, 'timestamp'>) => void;
   removeTimerRecord: (date: string, index: number) => void;
+  removeWorkoutDuration: (date: string) => void;
   copyLatestWorkout: () => void;
   saveTemplate: (name: string) => void;
   getTemplates: () => WorkoutTemplate[];
   deleteTemplate: (id: string) => void;
   applyTemplate: (id: string) => void;
+  hideBuiltinExercise: (type: string) => void;
+  showBuiltinExercise: (type: string) => void;
 }
 
 // ヘルパー: 今日のエクササイズのセットのエントリを更新
@@ -141,6 +145,7 @@ export const useWorkoutStore = create<WorkoutState>()(
       workoutTimerTargetDate: null,
       customExercises: [],
       templates: [],
+      hiddenBuiltinExercises: [],
 
       setSelectedDate: (date: string) => {
         set({ selectedDate: date });
@@ -244,13 +249,22 @@ export const useWorkoutStore = create<WorkoutState>()(
                     if (e.id !== exerciseId) return e;
                     const sourceSet = e.sets[setIndex];
                     if (!sourceSet) return e;
-                    const copiedSet = {
-                      entries: sourceSet.entries.map((entry) => ({ ...entry })),
-                      completed: false,
-                      metronome: sourceSet.metronome,
-                    };
+                    const copiedEntries = sourceSet.entries.map((entry) => ({ ...entry }));
                     const newSets = [...e.sets];
-                    newSets.splice(setIndex + 1, 0, copiedSet);
+                    if (newSets[setIndex + 1]) {
+                      // 次のセットが既に存在する → 内容を上書き
+                      newSets[setIndex + 1] = {
+                        ...newSets[setIndex + 1],
+                        entries: copiedEntries,
+                      };
+                    } else {
+                      // 次のセットがない → 新規挿入
+                      newSets.splice(setIndex + 1, 0, {
+                        entries: copiedEntries,
+                        completed: false,
+                        metronome: sourceSet.metronome,
+                      });
+                    }
                     return { ...e, sets: newSets };
                   }),
                 }
@@ -458,6 +472,14 @@ export const useWorkoutStore = create<WorkoutState>()(
             ],
           };
         });
+      },
+
+      removeWorkoutDuration: (date: string) => {
+        set((state) => ({
+          workouts: state.workouts.map((w) =>
+            w.date === date ? { ...w, durationSeconds: 0 } : w
+          ).filter((w) => w.exercises.length > 0 || (w.timerRecords?.length ?? 0) > 0),
+        }));
       },
 
       resetWorkoutTimer: () => {
@@ -675,6 +697,18 @@ export const useWorkoutStore = create<WorkoutState>()(
             };
           }
         });
+      },
+
+      hideBuiltinExercise: (type: string) => {
+        set((state) => ({
+          hiddenBuiltinExercises: [...state.hiddenBuiltinExercises, type],
+        }));
+      },
+
+      showBuiltinExercise: (type: string) => {
+        set((state) => ({
+          hiddenBuiltinExercises: state.hiddenBuiltinExercises.filter((t) => t !== type),
+        }));
       },
     }),
     {

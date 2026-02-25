@@ -37,7 +37,7 @@ export const calendarTheme = {
   backgroundColor: '#0f0f23',
   calendarBackground: '#1a1a2e',
   textSectionTitleColor: '#94a3b8',
-  selectedDayBackgroundColor: '#3b82f6',
+  selectedDayBackgroundColor: '#334155',
   selectedDayTextColor: '#ffffff',
   todayTextColor: '#22d3ee',
   dayTextColor: '#e2e8f0',

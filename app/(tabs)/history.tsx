@@ -1,11 +1,11 @@
-﻿import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, ScrollView, StyleSheet, Pressable, Alert } from 'react-native';
-import { Text, Card, Chip } from 'react-native-paper';
+import { Text, Card } from 'react-native-paper';
 import { Calendar, DateData } from 'react-native-calendars';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useWorkoutStore } from '@/stores/workoutStore';
 import { darkTheme, calendarTheme, colors } from '@/constants/theme';
-import { DailyWorkout, EXERCISE_NAMES, EXERCISE_ICONS } from '@/types/workout';
+import { EXERCISE_ICONS } from '@/types/workout';
 
 type MarkedDates = {
   [key: string]: {
@@ -16,8 +16,19 @@ type MarkedDates = {
 };
 
 export default function HistoryScreen() {
-  const { getAllWorkouts, getWorkoutByDate, customExercises, removeTimerRecord } = useWorkoutStore();
+  const { getAllWorkouts, getWorkoutByDate, customExercises, removeTimerRecord, removeWorkoutDuration } = useWorkoutStore();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  const handleDeleteWorkoutDuration = (date: string) => {
+    Alert.alert(
+      '筋トレ時間の削除',
+      'この筋トレ時間の記録を削除しますか？',
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        { text: '削除', style: 'destructive', onPress: () => removeWorkoutDuration(date) },
+      ]
+    );
+  };
 
   const handleDeleteTimerRecord = (date: string, index: number, recordType: string) => {
     Alert.alert(
@@ -58,7 +69,7 @@ export default function HistoryScreen() {
       marks[selectedDate] = {
         ...marks[selectedDate],
         selected: true,
-        selectedColor: darkTheme.colors.primary,
+        selectedColor: '#334155',
       };
     }
 
@@ -71,18 +82,6 @@ export default function HistoryScreen() {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}分${secs > 0 ? ` ${secs}秒` : ''}`;
-  };
-
-  const getTotalReps = (workout: DailyWorkout, type: string) => {
-    return workout.exercises
-      .filter((e) => e.type === type)
-      .reduce((sum, e) => sum + e.sets.reduce((s, set) => s + set.entries.reduce((es, entry) => es + entry.reps, 0), 0), 0);
-  };
-
-  const getTotalSets = (workout: DailyWorkout, type: string) => {
-    return workout.exercises
-      .filter((e) => e.type === type)
-      .reduce((sum, e) => sum + e.sets.length, 0);
   };
 
   const getExerciseColor = (type: string) => {
@@ -122,125 +121,71 @@ export default function HistoryScreen() {
 
         {selectedWorkout ? (
           <>
-            {selectedWorkout.exercises.map((exercise) => (
-              <Card key={exercise.id} style={styles.exerciseCard}>
-                <Card.Content>
-                  <View style={styles.exerciseHeader}>
-                    <MaterialCommunityIcons
-                      name={getExerciseIcon(exercise.type) as any}
-                      size={20}
-                      color={getExerciseColor(exercise.type)}
-                    />
-                    <Text style={styles.exerciseName}>{exercise.name}</Text>
-                  </View>
-
-                  {exercise.type === 'cardio' ? (
-                    <Text style={styles.statText}>
-                      {formatDuration(exercise.duration || 0)}
-                    </Text>
-                  ) : (
-                    <View style={styles.statsRow}>
-                      <Chip style={styles.statChip} textStyle={styles.statChipText}>
-                        {exercise.sets.length} セット
-                      </Chip>
-                      <Chip style={styles.statChip} textStyle={styles.statChipText}>
-                        合計 {exercise.sets.reduce((sum, s) => sum + s.entries.reduce((es, entry) => es + entry.reps, 0), 0)} 回
-                      </Chip>
-                    </View>
-                  )}
-
-                  {exercise.type !== 'cardio' && exercise.sets.length > 0 && (
-                    <View style={styles.setsDetail}>
-                      {exercise.sets.map((set, index) => (
-                        <View key={index} style={{ marginBottom: 4 }}>
-                          <Text style={styles.setDetailText}>
-                            {index + 1}セット {set.completed ? '完了' : ''}
-                          </Text>
-                          {set.entries.map((entry, ei) => (
-                            <Text key={ei} style={[styles.setDetailText, { marginLeft: 12 }]}
-                            >
-                              {entry.reps}回{entry.weight ? ` ${entry.weight}kg` : ''}{entry.variation ? ` ${entry.variation}` : ''}{entry.tempo ? ` (${entry.tempo})` : ''}
-                            </Text>
-                          ))}
-                        </View>
-                      ))}
-                    </View>
-                  )}
-                </Card.Content>
-              </Card>
-            ))}
-
             <Card style={styles.summaryCard}>
               <Card.Content>
                 <Text style={styles.summaryTitle}>トレーニング内容</Text>
-                {(selectedWorkout.durationSeconds ?? 0) > 0 && (
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>筋トレ時間</Text>
-                    <Text style={styles.summaryValue}>
-                      {formatDuration(selectedWorkout.durationSeconds!)}
-                    </Text>
-                  </View>
-                )}
-                {['pushup', 'squat', 'pullup'].map((type) => {
-                  const totalReps = getTotalReps(selectedWorkout, type);
-                  const totalSets = getTotalSets(selectedWorkout, type);
-                  if (totalReps === 0) return null;
-                  return (
-                    <View key={type} style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>
-                        {EXERCISE_NAMES[type as keyof typeof EXERCISE_NAMES]}
-                      </Text>
-                      <Text style={styles.summaryValue}>
-                        {totalSets}セット / {totalReps}回
-                      </Text>
-                    </View>
-                  );
-                })}
-                {customExercises.map((custom) => {
-                  const totalReps = getTotalReps(selectedWorkout, custom.id);
-                  const totalSets = getTotalSets(selectedWorkout, custom.id);
-                  if (totalReps === 0 && totalSets === 0) return null;
-                  return (
-                    <View key={custom.id} style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>{custom.name}</Text>
-                      <Text style={styles.summaryValue}>
-                        {totalSets}セット / {totalReps}回
-                      </Text>
-                    </View>
-                  );
-                })}
-                {selectedWorkout.exercises
-                  .filter((e) => e.type === 'cardio')
-                  .map((e) => (
-                    <View key={e.id} style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>有酸素運動</Text>
-                      <Text style={styles.summaryValue}>
-                        {formatDuration(e.duration || 0)}
-                      </Text>
-                    </View>
-                  ))}
-                {['bodypump', 'bodycombat', 'leapfight'].map((type) => {
-                  const exercises = selectedWorkout.exercises.filter((e) => e.type === type);
-                  if (exercises.length === 0) return null;
-                  const totalMinutes = exercises.reduce((sum, e) => sum + (e.durationMinutes || 0), 0);
-                  if (totalMinutes === 0) return null;
-                  return (
-                    <View key={type} style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>
-                        {EXERCISE_NAMES[type as keyof typeof EXERCISE_NAMES]}
-                      </Text>
-                      <Text style={styles.summaryValue}>{totalMinutes}分</Text>
-                    </View>
-                  );
-                })}
 
-                {selectedWorkout.timerRecords && selectedWorkout.timerRecords.length > 0 && (
+                {selectedWorkout.exercises.map((exercise) => (
+                  <View key={exercise.id} style={styles.exerciseBlock}>
+                    {/* 種目ヘッダー（名前＋サマリー） */}
+                    <View style={styles.exerciseHeaderRow}>
+                      <View style={styles.exerciseHeaderLeft}>
+                        <MaterialCommunityIcons
+                          name={getExerciseIcon(exercise.type) as any}
+                          size={16}
+                          color={getExerciseColor(exercise.type)}
+                        />
+                        <Text style={[styles.summaryLabel, { fontWeight: '600', color: darkTheme.colors.onSurface }]}>
+                          {exercise.name}
+                        </Text>
+                      </View>
+                      <Text style={styles.summaryValue}>
+                        {exercise.durationMinutes
+                          ? `${exercise.durationMinutes}分`
+                          : exercise.duration
+                          ? formatDuration(exercise.duration)
+                          : `${exercise.sets.length}セット / ${exercise.sets.reduce((sum, s) => sum + s.entries.reduce((es, e) => es + e.reps, 0), 0)}回`}
+                      </Text>
+                    </View>
+
+                    {/* セット詳細 */}
+                    {exercise.sets.length > 0 && !exercise.durationMinutes && !exercise.duration && (
+                      <View style={styles.setsDetail}>
+                        {exercise.sets.map((set, index) => (
+                          <View key={index} style={styles.setDetailRow}>
+                            <Text style={styles.setDetailLabel}>
+                              {index + 1}セット目
+                            </Text>
+                            <Text style={styles.setDetailText}>
+                              {set.entries.map((entry) =>
+                                `${entry.reps}回${entry.weight ? ` ${entry.weight}kg` : ''}${entry.variation ? ` ${entry.variation}` : ''}${entry.tempo ? ` (${entry.tempo})` : ''}`
+                              ).join(' / ')}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                ))}
+
+                {((selectedWorkout.durationSeconds ?? 0) > 0 || (selectedWorkout.timerRecords && selectedWorkout.timerRecords.length > 0)) && (
                   <>
-                    <Text style={[styles.summaryTitle, { marginTop: 12 }]}>タイマー記録</Text>
-                    {selectedWorkout.timerRecords.map((record, index) => (
+                    <Text style={[styles.summaryTitle, { marginTop: 16 }]}>タイマー記録</Text>
+                    {(selectedWorkout.durationSeconds ?? 0) > 0 && (
+                      <Pressable
+                        onPress={() => handleDeleteWorkoutDuration(selectedDate!)}
+                        style={styles.summaryRow}
+                      >
+                        <Text style={styles.summaryLabel}>筋トレ時間</Text>
+                        <Text style={styles.summaryValue}>
+                          {formatDuration(selectedWorkout.durationSeconds!)}
+                        </Text>
+                      </Pressable>
+                    )}
+                    {selectedWorkout.timerRecords?.map((record, index) => (
                       <Pressable
                         key={index}
-                        onPress={() => handleDeleteTimerRecord(selectedDate, index, record.type)}
+                        onPress={() => handleDeleteTimerRecord(selectedDate!, index, record.type)}
                         style={styles.summaryRow}
                       >
                         <Text style={styles.summaryLabel}>
@@ -305,47 +250,6 @@ const styles = StyleSheet.create({
     color: darkTheme.colors.onSurface,
     marginBottom: 16,
   },
-  exerciseCard: {
-    backgroundColor: darkTheme.colors.surface,
-    marginBottom: 12,
-  },
-  exerciseHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-  },
-  exerciseName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: darkTheme.colors.onSurface,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  statChip: {
-    backgroundColor: darkTheme.colors.surfaceVariant,
-  },
-  statChipText: {
-    color: darkTheme.colors.onSurface,
-  },
-  statText: {
-    fontSize: 18,
-    color: darkTheme.colors.primary,
-    fontWeight: '600',
-  },
-  setsDetail: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: darkTheme.colors.outline,
-  },
-  setDetailText: {
-    fontSize: 14,
-    color: darkTheme.colors.onSurfaceVariant,
-    marginBottom: 4,
-  },
   summaryCard: {
     backgroundColor: darkTheme.colors.surfaceVariant,
     marginTop: 8,
@@ -369,6 +273,43 @@ const styles = StyleSheet.create({
     color: darkTheme.colors.onSurface,
     fontWeight: '500',
   },
+  exerciseBlock: {
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: darkTheme.colors.outline,
+  },
+  exerciseHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  exerciseHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  setsDetail: {
+    marginTop: 8,
+    paddingLeft: 22,
+  },
+  setDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
+  setDetailLabel: {
+    fontSize: 13,
+    color: darkTheme.colors.onSurfaceVariant,
+    marginRight: 8,
+  },
+  setDetailText: {
+    fontSize: 13,
+    color: darkTheme.colors.onSurfaceVariant,
+    flexShrink: 1,
+    textAlign: 'right',
+  },
   emptyCard: {
     backgroundColor: darkTheme.colors.surface,
   },
@@ -382,4 +323,3 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 });
-
