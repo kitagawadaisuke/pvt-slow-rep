@@ -715,6 +715,10 @@ export const useWorkoutStore = create<WorkoutState>()(
       name: 'workout-storage',
       version: 2,
       storage: createJSONStorage(() => AsyncStorage),
+      partialize: (state) => {
+        const { selectedDate, ...rest } = state;
+        return rest;
+      },
       migrate: (persistedState: any, version: number) => {
         if (version === 0 || !version) {
           // v0 → v1: セットの旧フォーマットを新フォーマットに移行

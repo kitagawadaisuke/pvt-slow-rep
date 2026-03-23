@@ -3,6 +3,7 @@ import { View, StyleSheet, Vibration } from 'react-native';
 import { Text, Button, SegmentedButtons, Card, IconButton } from 'react-native-paper';
 import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
+import { deactivateKeepAwake, activateKeepAwake } from 'expo-keep-awake';
 import { useWorkoutStore } from '@/stores/workoutStore';
 import { darkTheme } from '@/constants/theme';
 import { FeedbackMode } from '@/types/workout';
@@ -41,6 +42,10 @@ export default function TimerScreen() {
   const [isCountingDown, setIsCountingDown] = useState(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // メトロノーム連携（インターバル残り10秒でメトロノーム準備カウントダウン自動開始）
+  const [metronomeLink, setMetronomeLink] = useState(false);
+  const metronomeLinkTriggeredRef = useRef(false);
+
   // Feedback mode
   const [feedbackMode, setFeedbackMode] = useState<FeedbackMode>(timerSettings.feedbackMode || 'both');
 
@@ -54,6 +59,16 @@ export default function TimerScreen() {
   useEffect(() => {
     beatsRef.current = beats;
   }, [beats]);
+
+  // タイマーまたはメトロノーム動作中はスリープ防止
+  useEffect(() => {
+    if (isRunning || isMetronomeRunning || isCountingDown) {
+      activateKeepAwake();
+    } else {
+      deactivateKeepAwake();
+    }
+    return () => deactivateKeepAwake();
+  }, [isRunning, isMetronomeRunning, isCountingDown]);
 
   useEffect(() => {
     setupAudio();
@@ -147,10 +162,42 @@ export default function TimerScreen() {
         setRemainingTime((prev) => {
           if (prev <= 1) {
             setIsRunning(false);
+            setIsCountingDown(false);
+            if (metronomeLink) {
+              // メトロノーム連携: カウントダウンから直接メトロノーム開始
+              setIsMetronomeRunning(true);
+              setMode('metronome');
+              resetBarCount();
+            }
             playTimerEnd();
+            metronomeLinkTriggeredRef.current = false;
             return intervalTime;
           }
-          return prev - 1;
+          const nextRemaining = prev - 1;
+          // メトロノーム連携: 残り10秒でカウントダウン自動開始
+          if (metronomeLink && nextRemaining === 10 && !metronomeLinkTriggeredRef.current) {
+            metronomeLinkTriggeredRef.current = true;
+            setCountdownRemaining(10);
+            setIsCountingDown(true);
+          }
+          // 残り10秒以下でビープ音
+          if (nextRemaining <= 10 && nextRemaining > 0) {
+            if (nextRemaining <= 3) {
+              const enNums = ['One', 'Two', 'Three'];
+              Speech.speak(enNums[nextRemaining - 1], { language: 'en-US', rate: 1.1, pitch: 1.05 });
+              playBeep(true);
+            } else {
+              playBeep(false);
+            }
+          }
+          // メトロノーム連携カウントダウン表示を同期
+          if (metronomeLinkTriggeredRef.current && nextRemaining <= 10) {
+            setCountdownRemaining(nextRemaining);
+            if (nextRemaining <= 0) {
+              setIsCountingDown(false);
+            }
+          }
+          return nextRemaining;
         });
       }, 1000);
     } else {
@@ -160,7 +207,7 @@ export default function TimerScreen() {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [isRunning, intervalTime, playTimerEnd]);
+  }, [isRunning, intervalTime, playTimerEnd, playBeep, metronomeLink]);
 
   // Metronome Logic（refでビートを管理しタイミング精度を向上）
   useEffect(() => {
@@ -178,7 +225,7 @@ export default function TimerScreen() {
         if (nextBeat === 0) {
           setBarCount((prevBars) => {
             const newBarCount = prevBars + 1;
-            Speech.speak(`${newBarCount}`);
+            Speech.speak(`${newBarCount}`, { language: 'en-US', rate: 1.1, pitch: 1.05 });
             return newBarCount;
           });
         }
@@ -211,6 +258,7 @@ export default function TimerScreen() {
   };
 
   const startInterval = () => {
+    metronomeLinkTriggeredRef.current = false;
     setRemainingTime(intervalTime);
     setIsRunning(true);
   };
@@ -263,9 +311,16 @@ export default function TimerScreen() {
       setIsCountingDown(true);
       countdownRef.current = setInterval(() => {
         setCountdownRemaining((prev) => {
-          // ラスト3秒を読み上げ
-          if (prev <= 3 && prev > 0) {
-            Speech.speak(`${prev}`);
+          if (prev - 1 > 0) {
+            if (prev - 1 <= 3) {
+              // ラスト3秒は読み上げ + アクセント音
+              const enNumbers = ['One', 'Two', 'Three'];
+              Speech.speak(enNumbers[prev - 2], { language: 'en-US', rate: 1.1, pitch: 1.05 });
+              playBeep(true);
+            } else if (prev - 1 <= 10) {
+              // 10秒前からビープ音
+              playBeep(false);
+            }
           }
           if (prev <= 1) {
             clearInterval(countdownRef.current!);
@@ -365,8 +420,15 @@ export default function TimerScreen() {
             <View style={styles.timerContent}>
               <Text style={styles.timerDisplay}>{formatTime(remainingTime)}</Text>
               <Text style={styles.timerLabel}>
-                {isRunning ? '残り時間' : '設定時間'}
+                {isRunning
+                  ? isCountingDown && remainingTime <= 10
+                    ? `メトロノーム準備 ${remainingTime}`
+                    : '残り時間'
+                  : '設定時間'}
               </Text>
+              {metronomeLink && !isRunning && (
+                <Text style={styles.metronomeLinkHint}>🎵 残り10秒でメトロノーム開始</Text>
+              )}
               <IconButton
                 icon="bookmark-outline"
                 mode="contained-tonal"
@@ -434,6 +496,15 @@ export default function TimerScreen() {
                   {formatTime(seconds)}
                 </Button>
               ))}
+              <Button
+                mode={metronomeLink ? 'contained' : 'outlined'}
+                onPress={() => setMetronomeLink(!metronomeLink)}
+                style={styles.intervalButton}
+                compact
+                icon="metronome"
+              >
+                連携
+              </Button>
             </View>
           ) : (
             <View style={styles.metronomeOptions}>
@@ -718,6 +789,11 @@ const styles = StyleSheet.create({
   },
   recordButton: {
     marginTop: 12,
+  },
+  metronomeLinkHint: {
+    fontSize: 12,
+    color: darkTheme.colors.primary,
+    marginTop: 6,
   },
   bpmDisplay: {
     fontSize: 68,

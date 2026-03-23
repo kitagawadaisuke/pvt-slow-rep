@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { View, ScrollView, StyleSheet, Alert } from 'react-native';
 import { Text, Card, Button, List, Divider, Portal, Dialog, RadioButton } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Calendar } from 'react-native-calendars';
 import { useWorkoutStore } from '@/stores/workoutStore';
 import { darkTheme } from '@/constants/theme';
 import { exportToJson, filterWorkoutsByDateRange } from '@/utils/export';
@@ -10,8 +11,11 @@ import { isDurationBasedExercise } from '@/types/workout';
 export default function SettingsScreen() {
   const { getAllWorkouts } = useWorkoutStore();
   const [exportDialogVisible, setExportDialogVisible] = useState(false);
-  const [exportRange, setExportRange] = useState<'all' | 'week' | 'month'>('all');
+  const [exportRange, setExportRange] = useState<'all' | 'week' | 'month' | 'day'>('all');
   const [isExporting, setIsExporting] = useState(false);
+  const [selectedExportDate, setSelectedExportDate] = useState(
+    new Date().toISOString().split('T')[0]
+  );
 
   const workouts = getAllWorkouts();
 
@@ -19,12 +23,16 @@ export default function SettingsScreen() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
-  const getDateRange = (range: 'all' | 'week' | 'month') => {
+  const getDateRange = (range: 'all' | 'week' | 'month' | 'day') => {
     const today = new Date();
     const endDate = toLocalDateString(today);
 
     if (range === 'all') {
       return { start: '1970-01-01', end: endDate };
+    }
+
+    if (range === 'day') {
+      return { start: selectedExportDate, end: selectedExportDate };
     }
 
     const startDate = new Date();
@@ -44,7 +52,7 @@ export default function SettingsScreen() {
     setIsExporting(true);
     try {
       const { start, end } = getDateRange(exportRange);
-      const filteredWorkouts = exportRange === 'all'
+      const filteredWorkouts = exportRange === 'all' && start === '1970-01-01'
         ? workouts
         : filterWorkoutsByDateRange(workouts, start, end);
 
@@ -234,7 +242,7 @@ export default function SettingsScreen() {
             <Text style={styles.dialogText}>エクスポート範囲を選択</Text>
             <RadioButton.Group
               value={exportRange}
-              onValueChange={(value) => setExportRange(value as 'all' | 'week' | 'month')}
+              onValueChange={(value) => setExportRange(value as 'all' | 'week' | 'month' | 'day')}
             >
               <RadioButton.Item
                 label="すべてのデータ"
@@ -251,7 +259,32 @@ export default function SettingsScreen() {
                 value="month"
                 labelStyle={styles.radioLabel}
               />
+              <RadioButton.Item
+                label="日付指定"
+                value="day"
+                labelStyle={styles.radioLabel}
+              />
             </RadioButton.Group>
+            {exportRange === 'day' && (
+              <Calendar
+                current={selectedExportDate}
+                onDayPress={(day: { dateString: string }) => setSelectedExportDate(day.dateString)}
+                markedDates={{
+                  [selectedExportDate]: { selected: true, selectedColor: darkTheme.colors.primary },
+                }}
+                theme={{
+                  backgroundColor: darkTheme.colors.surface,
+                  calendarBackground: darkTheme.colors.surface,
+                  textSectionTitleColor: darkTheme.colors.onSurfaceVariant,
+                  dayTextColor: darkTheme.colors.onSurface,
+                  todayTextColor: darkTheme.colors.primary,
+                  monthTextColor: darkTheme.colors.onSurface,
+                  arrowColor: darkTheme.colors.primary,
+                  textDisabledColor: '#555',
+                }}
+                style={styles.exportCalendar}
+              />
+            )}
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setExportDialogVisible(false)}>キャンセル</Button>
@@ -357,5 +390,9 @@ const styles = StyleSheet.create({
   },
   radioLabel: {
     color: darkTheme.colors.onSurface,
+  },
+  exportCalendar: {
+    borderRadius: 8,
+    marginTop: 8,
   },
 });
