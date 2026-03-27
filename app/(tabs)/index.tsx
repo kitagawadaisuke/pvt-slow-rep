@@ -1,14 +1,38 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo, useCallback, memo } from 'react';
 import { View, ScrollView, StyleSheet, TextInput as RNTextInput, Alert, Pressable } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Text, Card, Button, IconButton, TextInput, Portal, Dialog } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Calendar, DateData } from 'react-native-calendars';
 import { useWorkoutStore } from '@/stores/workoutStore';
+import { useShallow } from 'zustand/react/shallow';
 import { darkTheme, colors, calendarTheme } from '@/constants/theme';
-import { ExerciseType, BuiltinExerciseType, EXERCISE_ICONS, isDurationBasedExercise, DURATION_PRESETS, BUILTIN_EXERCISE_NAMES } from '@/types/workout';
+import { ExerciseType, BuiltinExerciseType, Exercise, EXERCISE_ICONS, isDurationBasedExercise, DURATION_PRESETS, BUILTIN_EXERCISE_NAMES } from '@/types/workout';
 
-// IME対応TextInputコンポーネント
+const EMPTY_EXERCISES: Exercise[] = [];
+
+// --- Helper functions (hoisted, stable references) ---
+
+const getExerciseColor = (type: ExerciseType, customExercises: { id: string; color: string }[]): string => {
+  const custom = customExercises.find((e) => e.id === type);
+  if (custom) return custom.color;
+  return (colors as Record<string, string>)[type] || colors.strength;
+};
+
+const getExerciseIcon = (type: ExerciseType, customExercises: { id: string; icon: string }[]): string => {
+  const custom = customExercises.find((e) => e.id === type);
+  if (custom) return custom.icon;
+  return (EXERCISE_ICONS as Record<string, string>)[type] || 'dumbbell';
+};
+
+const formatDuration = (seconds: number) => {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
+// --- IME対応TextInputコンポーネント ---
 interface IMESafeTextInputProps {
   label: string;
   value: string;
@@ -19,7 +43,7 @@ interface IMESafeTextInputProps {
   activeOutlineColor?: string;
 }
 
-const IMESafeTextInput: React.FC<IMESafeTextInputProps> = ({
+const IMESafeTextInput = memo<IMESafeTextInputProps>(({
   label,
   value,
   onSave,
@@ -31,20 +55,21 @@ const IMESafeTextInput: React.FC<IMESafeTextInputProps> = ({
   const [localValue, setLocalValue] = useState(value);
   const isFocusedRef = useRef(false);
 
-  // 親からのvalue変更を反映（初期値設定時のみ）
   useEffect(() => {
     if (!isFocusedRef.current) {
       setLocalValue(value);
     }
   }, [value]);
 
-  // フォーカスが外れたときにstoreへ保存
-  const handleEndEditing = () => {
+  const handleEndEditing = useCallback(() => {
     const trimmedValue = localValue.trim();
     if (trimmedValue !== value) {
       onSave(trimmedValue);
     }
-  };
+  }, [localValue, value, onSave]);
+
+  const handleFocus = useCallback(() => { isFocusedRef.current = true; }, []);
+  const handleBlur = useCallback(() => { isFocusedRef.current = false; }, []);
 
   return (
     <TextInput
@@ -52,12 +77,8 @@ const IMESafeTextInput: React.FC<IMESafeTextInputProps> = ({
       label={label}
       value={localValue}
       onChangeText={setLocalValue}
-      onFocus={() => {
-        isFocusedRef.current = true;
-      }}
-      onBlur={() => {
-        isFocusedRef.current = false;
-      }}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
       onEndEditing={handleEndEditing}
       placeholder={placeholder}
       style={style}
@@ -66,79 +87,416 @@ const IMESafeTextInput: React.FC<IMESafeTextInputProps> = ({
       dense
     />
   );
-};
+});
 
-export default function HomeScreen() {
-  const [dialogVisible, setDialogVisible] = useState(false);
-  const [customExerciseDialogVisible, setCustomExerciseDialogVisible] = useState(false);
-  const [datePickerVisible, setDatePickerVisible] = useState(false);
-  const [templateDialogVisible, setTemplateDialogVisible] = useState(false);
-  const [saveTemplateDialogVisible, setSaveTemplateDialogVisible] = useState(false);
-  const [expandedEntries, setExpandedEntries] = useState<Record<string, boolean>>({});
-  const [, setTimerTick] = useState(0);
-  const customExerciseNameRef = useRef('');
-  const [customExerciseNameEmpty, setCustomExerciseNameEmpty] = useState(true);
-  const [customExerciseIcon, setCustomExerciseIcon] = useState('dumbbell');
-  const [customExerciseColor, setCustomExerciseColor] = useState('#3b82f6');
-  const templateNameRef = useRef('');
-  const [templateNameEmpty, setTemplateNameEmpty] = useState(true);
-  const {
-    selectedDate,
-    setSelectedDate,
-    workoutTimerRunning,
-    getWorkoutByDate,
-    getSelectedWorkoutDurationSeconds,
-    addExercise,
-    removeExercise,
-    addSet,
-    removeSet,
-    copySet,
-    addSetEntry,
-    removeSetEntry,
-    updateEntryReps,
-    updateEntryWeight,
-    updateEntryVariation,
-    updateEntryTempo,
-    updateDurationMinutes,
-    customExercises,
-    addCustomExercise,
-    startWorkoutTimer,
-    stopWorkoutTimer,
-    resetWorkoutTimer,
-    removeCustomExercise,
-    saveTemplate,
-    getTemplates,
-    deleteTemplate,
-    applyTemplate,
-    hiddenBuiltinExercises,
-    hideBuiltinExercise,
-    showBuiltinExercise,
-  } = useWorkoutStore();
+// --- SetEntryRow コンポーネント ---
+interface SetEntryRowProps {
+  exerciseId: string;
+  exerciseType: ExerciseType;
+  setIndex: number;
+  entryIndex: number;
+  reps: number;
+  weight?: number;
+  variation?: string;
+  tempo?: string;
+  showEntryHeader: boolean;
+  exerciseColor: string;
+}
 
-  const selectedWorkout = getWorkoutByDate(selectedDate);
-  const exercises = selectedWorkout?.exercises || [];
+const SetEntryRow = memo<SetEntryRowProps>(({
+  exerciseId,
+  exerciseType,
+  setIndex,
+  entryIndex,
+  reps,
+  weight,
+  variation,
+  tempo,
+  showEntryHeader,
+  exerciseColor,
+}) => {
+  const updateEntryReps = useWorkoutStore((s) => s.updateEntryReps);
+  const updateEntryWeight = useWorkoutStore((s) => s.updateEntryWeight);
+  const updateEntryVariation = useWorkoutStore((s) => s.updateEntryVariation);
+  const updateEntryTempo = useWorkoutStore((s) => s.updateEntryTempo);
+  const removeSetEntry = useWorkoutStore((s) => s.removeSetEntry);
+
+  const [isOpen, setIsOpen] = useState(false);
+  const toggleDetail = useCallback(() => setIsOpen((prev) => !prev), []);
+
+  const handleRepsChange = useCallback((text: string) => {
+    updateEntryReps(exerciseId, setIndex, entryIndex, parseInt(text, 10) || 0);
+  }, [exerciseId, setIndex, entryIndex, updateEntryReps]);
+
+  const handleWeightChange = useCallback((text: string) => {
+    const w = parseFloat(text);
+    updateEntryWeight(exerciseId, setIndex, entryIndex, Number.isFinite(w) ? w : 0);
+  }, [exerciseId, setIndex, entryIndex, updateEntryWeight]);
+
+  const handleVariationSave = useCallback((text: string) => {
+    updateEntryVariation(exerciseId, setIndex, entryIndex, text);
+  }, [exerciseId, setIndex, entryIndex, updateEntryVariation]);
+
+  const handleTempoSave = useCallback((text: string) => {
+    updateEntryTempo(exerciseId, setIndex, entryIndex, text);
+  }, [exerciseId, setIndex, entryIndex, updateEntryTempo]);
+
+  const handleRemoveEntry = useCallback(() => {
+    removeSetEntry(exerciseId, setIndex, entryIndex);
+  }, [exerciseId, setIndex, entryIndex, removeSetEntry]);
+
+  return (
+    <View style={styles.entryContainer}>
+      {showEntryHeader ? (
+        <View style={styles.entryHeader}>
+          <Text style={styles.entryLabel}>種目 {entryIndex + 1}</Text>
+          <IconButton
+            icon="close-circle-outline"
+            iconColor={darkTheme.colors.onSurfaceVariant}
+            size={16}
+            onPress={handleRemoveEntry}
+          />
+        </View>
+      ) : null}
+
+      <View style={styles.compactRow}>
+        <TextInput
+          mode="outlined"
+          label="回数"
+          value={reps > 0 ? reps.toString() : ''}
+          onChangeText={handleRepsChange}
+          placeholder="0"
+          keyboardType="number-pad"
+          style={styles.compactInput}
+          outlineColor={darkTheme.colors.outline}
+          activeOutlineColor={exerciseColor}
+          dense
+        />
+        <TextInput
+          mode="outlined"
+          label="重量"
+          value={weight ? weight.toString() : ''}
+          onChangeText={handleWeightChange}
+          placeholder="kg"
+          keyboardType="decimal-pad"
+          style={styles.compactInput}
+          outlineColor={darkTheme.colors.outline}
+          activeOutlineColor={exerciseColor}
+          dense
+        />
+      </View>
+
+      <Button
+        mode="text"
+        onPress={toggleDetail}
+        compact
+        textColor={darkTheme.colors.onSurfaceVariant}
+        style={styles.detailToggle}
+        icon={isOpen ? 'chevron-up' : 'chevron-down'}
+      >
+        詳細
+      </Button>
+
+      {isOpen ? (
+        <View style={styles.detailBlock}>
+          <View style={styles.setRow}>
+            <IMESafeTextInput
+              label="バリエーション"
+              value={variation || ''}
+              onSave={handleVariationSave}
+              placeholder="例: ナロー"
+              style={styles.variationInput}
+              outlineColor={darkTheme.colors.outline}
+              activeOutlineColor={exerciseColor}
+            />
+          </View>
+          <View style={styles.setRow}>
+            <IMESafeTextInput
+              label="テンポ"
+              value={tempo || ''}
+              onSave={handleTempoSave}
+              placeholder="例: 2-1-2"
+              style={styles.tempoInput}
+              outlineColor={darkTheme.colors.outline}
+              activeOutlineColor={exerciseColor}
+            />
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+});
+
+// --- ExerciseCard コンポーネント ---
+interface ExerciseCardProps {
+  exercise: Exercise;
+  exerciseColor: string;
+  exerciseIcon: string;
+}
+
+const ExerciseCard = memo<ExerciseCardProps>(({ exercise, exerciseColor, exerciseIcon }) => {
+  const removeExercise = useWorkoutStore((s) => s.removeExercise);
+  const addSet = useWorkoutStore((s) => s.addSet);
+  const removeSet = useWorkoutStore((s) => s.removeSet);
+  const copySet = useWorkoutStore((s) => s.copySet);
+  const addSetEntry = useWorkoutStore((s) => s.addSetEntry);
+  const updateDurationMinutes = useWorkoutStore((s) => s.updateDurationMinutes);
+
+  const handleRemove = useCallback(() => removeExercise(exercise.id), [exercise.id, removeExercise]);
+  const handleAddSet = useCallback(() => addSet(exercise.id), [exercise.id, addSet]);
+
+  const cardStyle = useMemo(
+    () => [styles.exerciseCard, { borderLeftColor: exerciseColor }],
+    [exerciseColor]
+  );
+
+  const renderLeft = useCallback(
+    () => <MaterialCommunityIcons name={exerciseIcon as any} size={24} color={exerciseColor} />,
+    [exerciseIcon, exerciseColor]
+  );
+
+  const renderRight = useCallback(
+    () => <IconButton icon="delete-outline" iconColor={darkTheme.colors.error} onPress={handleRemove} />,
+    [handleRemove]
+  );
+
+  return (
+    <Card style={cardStyle}>
+      <Card.Title
+        title={exercise.name}
+        titleStyle={styles.exerciseTitle}
+        left={renderLeft}
+        right={renderRight}
+      />
+      <Card.Content>
+        {isDurationBasedExercise(exercise.type) ? (
+          <View style={styles.durationContainer}>
+            <View style={styles.durationButtons}>
+              {DURATION_PRESETS.map((mins) => (
+                <Button
+                  key={mins}
+                  mode={exercise.durationMinutes === mins ? 'contained' : 'outlined'}
+                  onPress={() => updateDurationMinutes(exercise.id, mins)}
+                  style={styles.durationChip}
+                  buttonColor={exercise.durationMinutes === mins ? exerciseColor : undefined}
+                  compact
+                >
+                  {mins}分
+                </Button>
+              ))}
+            </View>
+          </View>
+        ) : (
+          <>
+            {exercise.sets.map((set, setIndex) => (
+              <View key={setIndex} style={styles.setContainer}>
+                <View style={styles.setHeader}>
+                  <Text style={styles.setLabel}>セット {setIndex + 1}</Text>
+                  <View style={styles.setActions}>
+                    <IconButton
+                      icon="content-copy"
+                      iconColor={darkTheme.colors.onSurfaceVariant}
+                      size={18}
+                      onPress={() => copySet(exercise.id, setIndex)}
+                    />
+                    <IconButton
+                      icon="close"
+                      iconColor={darkTheme.colors.error}
+                      size={18}
+                      onPress={() => removeSet(exercise.id, setIndex)}
+                    />
+                  </View>
+                </View>
+
+                {set.entries.map((entry, entryIndex) => (
+                  <SetEntryRow
+                    key={entryIndex}
+                    exerciseId={exercise.id}
+                    exerciseType={exercise.type}
+                    setIndex={setIndex}
+                    entryIndex={entryIndex}
+                    reps={entry.reps}
+                    weight={entry.weight}
+                    variation={entry.variation}
+                    tempo={entry.tempo}
+                    showEntryHeader={set.entries.length > 1}
+                    exerciseColor={exerciseColor}
+                  />
+                ))}
+
+                <Button
+                  mode="text"
+                  icon="plus"
+                  onPress={() => addSetEntry(exercise.id, setIndex)}
+                  textColor={darkTheme.colors.onSurfaceVariant}
+                  compact
+                  style={styles.addEntryButton}
+                >
+                  セット内追加
+                </Button>
+              </View>
+            ))}
+            <Button
+              mode="text"
+              icon="plus"
+              onPress={handleAddSet}
+              textColor={darkTheme.colors.primary}
+            >
+              セット追加
+            </Button>
+          </>
+        )}
+      </Card.Content>
+    </Card>
+  );
+});
+
+// --- ExerciseSelectDialog コンポーネント ---
+interface ExerciseSelectDialogProps {
+  visible: boolean;
+  onDismiss: () => void;
+  onOpenCustomDialog: () => void;
+}
+
+const ExerciseSelectDialog = memo<ExerciseSelectDialogProps>(({ visible, onDismiss, onOpenCustomDialog }) => {
+  const addExercise = useWorkoutStore((s) => s.addExercise);
+  const customExercises = useWorkoutStore((s) => s.customExercises);
+  const hiddenBuiltinExercises = useWorkoutStore((s) => s.hiddenBuiltinExercises);
+  const hideBuiltinExercise = useWorkoutStore((s) => s.hideBuiltinExercise);
+  const showBuiltinExercise = useWorkoutStore((s) => s.showBuiltinExercise);
+  const removeCustomExercise = useWorkoutStore((s) => s.removeCustomExercise);
 
   const allBuiltinExerciseTypes: BuiltinExerciseType[] = ['pushup', 'squat', 'pullup', 'bodypump', 'bodycombat', 'leapfight'];
-  const exerciseTypes = allBuiltinExerciseTypes.filter((t) => !hiddenBuiltinExercises.includes(t));
+  const exerciseTypes = useMemo(
+    () => allBuiltinExerciseTypes.filter((t) => !hiddenBuiltinExercises.includes(t)),
+    [hiddenBuiltinExercises]
+  );
 
-  const handleAddExercise = (type: ExerciseType) => {
+  const handleAddExercise = useCallback((type: ExerciseType) => {
     addExercise(type);
-    setDialogVisible(false);
-  };
+    onDismiss();
+  }, [addExercise, onDismiss]);
 
-  const getExerciseColor = (type: ExerciseType) => {
-    const customExercise = customExercises.find((e) => e.id === type);
-    if (customExercise) return customExercise.color;
-    return (colors as Record<string, string>)[type] || colors.strength;
-  };
+  const handleOpenCustom = useCallback(() => {
+    onDismiss();
+    onOpenCustomDialog();
+  }, [onDismiss, onOpenCustomDialog]);
 
-  const getExerciseIcon = (type: ExerciseType): string => {
-    const customExercise = customExercises.find((e) => e.id === type);
-    if (customExercise) return customExercise.icon;
-    return (EXERCISE_ICONS as Record<string, string>)[type] || 'dumbbell';
-  };
+  return (
+    <Dialog visible={visible} onDismiss={onDismiss} style={styles.dialog}>
+      <Dialog.Title>種目を選択</Dialog.Title>
+      <Dialog.Content>
+        <ScrollView style={styles.exerciseList}>
+          {exerciseTypes.map((type) => {
+            const color = getExerciseColor(type, customExercises);
+            const icon = getExerciseIcon(type, customExercises);
+            return (
+              <Swipeable
+                key={type}
+                renderRightActions={() => (
+                  <Pressable style={styles.swipeDeleteAction} onPress={() => hideBuiltinExercise(type)}>
+                    <MaterialCommunityIcons name="delete-outline" size={22} color="white" />
+                  </Pressable>
+                )}
+                overshootRight={false}
+              >
+                <Button
+                  mode="outlined"
+                  onPress={() => handleAddExercise(type)}
+                  style={[styles.exerciseButton, { borderColor: color }]}
+                  labelStyle={{ color }}
+                  icon={() => <MaterialCommunityIcons name={icon as any} size={20} color={color} />}
+                  contentStyle={styles.exerciseButtonContent}
+                >
+                  {BUILTIN_EXERCISE_NAMES[type]}
+                </Button>
+              </Swipeable>
+            );
+          })}
+          {customExercises.map((custom) => (
+            <Swipeable
+              key={custom.id}
+              renderRightActions={() => (
+                <Pressable
+                  style={styles.swipeDeleteAction}
+                  onPress={() => {
+                    Alert.alert(
+                      'カスタム種目の削除',
+                      `「${custom.name}」を削除しますか？`,
+                      [
+                        { text: 'キャンセル', style: 'cancel' },
+                        { text: '削除', style: 'destructive', onPress: () => removeCustomExercise(custom.id) },
+                      ]
+                    );
+                  }}
+                >
+                  <MaterialCommunityIcons name="delete-outline" size={22} color="white" />
+                </Pressable>
+              )}
+              overshootRight={false}
+            >
+              <Button
+                mode="outlined"
+                onPress={() => handleAddExercise(custom.id)}
+                style={[styles.exerciseButton, { borderColor: custom.color }]}
+                labelStyle={{ color: custom.color }}
+                icon={() => <MaterialCommunityIcons name={custom.icon as any} size={20} color={custom.color} />}
+                contentStyle={styles.exerciseButtonContent}
+              >
+                {custom.name}
+              </Button>
+            </Swipeable>
+          ))}
+          {hiddenBuiltinExercises.length > 0 ? (
+            <View style={styles.hiddenExercisesSection}>
+              <Text style={styles.hiddenExercisesLabel}>非表示の種目</Text>
+              {hiddenBuiltinExercises.map((type) => (
+                <Button
+                  key={type}
+                  mode="outlined"
+                  onPress={() => showBuiltinExercise(type)}
+                  style={styles.hiddenExerciseButton}
+                  icon="eye-outline"
+                >
+                  {BUILTIN_EXERCISE_NAMES[type as keyof typeof BUILTIN_EXERCISE_NAMES] || type}
+                </Button>
+              ))}
+            </View>
+          ) : null}
+          <Button
+            mode="contained"
+            onPress={handleOpenCustom}
+            style={styles.addCustomButton}
+            icon="plus"
+          >
+            カスタム種目を追加
+          </Button>
+        </ScrollView>
+      </Dialog.Content>
+      <Dialog.Actions>
+        <Button onPress={onDismiss}>キャンセル</Button>
+      </Dialog.Actions>
+    </Dialog>
+  );
+});
 
-  const handleAddCustomExercise = () => {
+// --- CustomExerciseDialog コンポーネント ---
+interface CustomExerciseDialogProps {
+  visible: boolean;
+  onDismiss: () => void;
+}
+
+const ICON_OPTIONS = ['dumbbell', 'arm-flex', 'human', 'human-handsup', 'run', 'boxing-glove', 'karate', 'weight-lifter', 'yoga', 'bike'];
+const COLOR_OPTIONS = ['#3b82f6', '#22c55e', '#f59e0b', '#f472b6', '#a855f7', '#ef4444', '#14b8a6', '#6366f1', '#ec4899', '#06b6d4'];
+
+const CustomExerciseDialog = memo<CustomExerciseDialogProps>(({ visible, onDismiss }) => {
+  const addCustomExercise = useWorkoutStore((s) => s.addCustomExercise);
+  const [customExerciseIcon, setCustomExerciseIcon] = useState('dumbbell');
+  const [customExerciseColor, setCustomExerciseColor] = useState('#3b82f6');
+  const [customExerciseNameEmpty, setCustomExerciseNameEmpty] = useState(true);
+  const customExerciseNameRef = useRef('');
+
+  const handleAdd = useCallback(() => {
     const name = customExerciseNameRef.current.trim();
     if (!name) return;
     addCustomExercise({
@@ -152,9 +510,200 @@ export default function HomeScreen() {
     setCustomExerciseNameEmpty(true);
     setCustomExerciseIcon('dumbbell');
     setCustomExerciseColor('#3b82f6');
-    setCustomExerciseDialogVisible(false);
-  };
+    onDismiss();
+  }, [customExerciseIcon, customExerciseColor, addCustomExercise, onDismiss]);
 
+  const handleNameChange = useCallback((text: string) => {
+    customExerciseNameRef.current = text;
+    const isEmpty = !text.trim();
+    setCustomExerciseNameEmpty((prev) => (prev !== isEmpty ? isEmpty : prev));
+  }, []);
+
+  return (
+    <Dialog visible={visible} onDismiss={onDismiss} style={styles.dialog}>
+      <Dialog.Title>カスタム種目を追加</Dialog.Title>
+      <Dialog.Content>
+        <Text style={styles.customExerciseLabel}>種目名</Text>
+        <RNTextInput
+          defaultValue=""
+          onChangeText={handleNameChange}
+          placeholder="例: ベンチプレス"
+          placeholderTextColor={darkTheme.colors.onSurfaceVariant}
+          style={styles.customExerciseNativeInput}
+          autoFocus={true}
+          returnKeyType="done"
+          blurOnSubmit={true}
+        />
+        <Text style={styles.customExerciseLabel}>アイコン</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.iconScroll}>
+          {ICON_OPTIONS.map((icon) => (
+            <IconButton
+              key={icon}
+              icon={icon}
+              iconColor={customExerciseIcon === icon ? darkTheme.colors.primary : darkTheme.colors.onSurfaceVariant}
+              containerColor={customExerciseIcon === icon ? darkTheme.colors.primaryContainer : 'transparent'}
+              onPress={() => setCustomExerciseIcon(icon)}
+              size={24}
+            />
+          ))}
+        </ScrollView>
+        <Text style={styles.customExerciseLabel}>カラー</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.colorScroll}>
+          {COLOR_OPTIONS.map((color) => (
+            <IconButton
+              key={color}
+              icon={customExerciseColor === color ? 'check' : 'circle'}
+              iconColor={color}
+              containerColor={customExerciseColor === color ? `${color}20` : 'transparent'}
+              onPress={() => setCustomExerciseColor(color)}
+              size={24}
+            />
+          ))}
+        </ScrollView>
+      </Dialog.Content>
+      <Dialog.Actions>
+        <Button onPress={onDismiss}>キャンセル</Button>
+        <Button onPress={handleAdd} disabled={customExerciseNameEmpty}>追加</Button>
+      </Dialog.Actions>
+    </Dialog>
+  );
+});
+
+// --- TemplateDialog コンポーネント ---
+interface TemplateDialogProps {
+  visible: boolean;
+  onDismiss: () => void;
+}
+
+const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) => {
+  const getTemplates = useWorkoutStore((s) => s.getTemplates);
+  const applyTemplate = useWorkoutStore((s) => s.applyTemplate);
+  const deleteTemplate = useWorkoutStore((s) => s.deleteTemplate);
+
+  const templates = getTemplates();
+
+  const handleApply = useCallback((id: string) => {
+    applyTemplate(id);
+    onDismiss();
+  }, [applyTemplate, onDismiss]);
+
+  return (
+    <Dialog visible={visible} onDismiss={onDismiss} style={styles.dialog}>
+      <Dialog.Title>テンプレートを選択</Dialog.Title>
+      <Dialog.Content>
+        {templates.length === 0 ? (
+          <Text style={styles.emptyTemplateText}>保存されたテンプレートがありません</Text>
+        ) : (
+          <ScrollView style={styles.templateList}>
+            {templates.map((template) => (
+              <View key={template.id} style={styles.templateItem}>
+                <Button
+                  mode="outlined"
+                  onPress={() => handleApply(template.id)}
+                  style={styles.templateButton}
+                >
+                  {template.name}
+                </Button>
+                <IconButton
+                  icon="delete"
+                  size={20}
+                  onPress={() => {
+                    Alert.alert(
+                      'テンプレートの削除',
+                      `「${template.name}」を削除しますか？`,
+                      [
+                        { text: 'キャンセル', style: 'cancel' },
+                        { text: '削除', style: 'destructive', onPress: () => deleteTemplate(template.id) },
+                      ]
+                    );
+                  }}
+                />
+              </View>
+            ))}
+          </ScrollView>
+        )}
+      </Dialog.Content>
+      <Dialog.Actions>
+        <Button onPress={onDismiss}>閉じる</Button>
+      </Dialog.Actions>
+    </Dialog>
+  );
+});
+
+// --- SaveTemplateDialog コンポーネント ---
+const SaveTemplateDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) => {
+  const saveTemplate = useWorkoutStore((s) => s.saveTemplate);
+  const templateNameRef = useRef('');
+  const [templateNameEmpty, setTemplateNameEmpty] = useState(true);
+
+  const handleDismiss = useCallback(() => {
+    templateNameRef.current = '';
+    setTemplateNameEmpty(true);
+    onDismiss();
+  }, [onDismiss]);
+
+  const handleSave = useCallback(() => {
+    const name = templateNameRef.current.trim();
+    if (name) {
+      saveTemplate(name);
+      templateNameRef.current = '';
+      setTemplateNameEmpty(true);
+      onDismiss();
+    }
+  }, [saveTemplate, onDismiss]);
+
+  const handleNameChange = useCallback((text: string) => {
+    templateNameRef.current = text;
+    const isEmpty = !text.trim();
+    setTemplateNameEmpty((prev) => (prev !== isEmpty ? isEmpty : prev));
+  }, []);
+
+  return (
+    <Dialog visible={visible} onDismiss={handleDismiss} style={styles.dialog}>
+      <Dialog.Title>テンプレートとして保存</Dialog.Title>
+      <Dialog.Content>
+        <RNTextInput
+          defaultValue=""
+          onChangeText={handleNameChange}
+          placeholder="テンプレート名（例: 胸の日）"
+          style={styles.textInput}
+        />
+      </Dialog.Content>
+      <Dialog.Actions>
+        <Button onPress={handleDismiss}>キャンセル</Button>
+        <Button onPress={handleSave} disabled={templateNameEmpty}>保存</Button>
+      </Dialog.Actions>
+    </Dialog>
+  );
+});
+
+// --- メインHomeScreen ---
+
+export default function HomeScreen() {
+  const {
+    selectedDate,
+    setSelectedDate,
+    workoutTimerRunning,
+    customExercises,
+    startWorkoutTimer,
+    stopWorkoutTimer,
+    resetWorkoutTimer,
+    getWorkoutByDate,
+    getSelectedWorkoutDurationSeconds,
+  } = useWorkoutStore();
+
+  const selectedWorkout = getWorkoutByDate(selectedDate);
+  const exercises = selectedWorkout?.exercises ?? EMPTY_EXERCISES;
+
+  // Dialog visibility states
+  const [dialogVisible, setDialogVisible] = useState(false);
+  const [customExerciseDialogVisible, setCustomExerciseDialogVisible] = useState(false);
+  const [datePickerVisible, setDatePickerVisible] = useState(false);
+  const [templateDialogVisible, setTemplateDialogVisible] = useState(false);
+  const [saveTemplateDialogVisible, setSaveTemplateDialogVisible] = useState(false);
+
+  // Timer tick for duration display
+  const [, setTimerTick] = useState(0);
   useEffect(() => {
     if (!workoutTimerRunning) return;
     const intervalId = setInterval(() => {
@@ -163,67 +712,81 @@ export default function HomeScreen() {
     return () => clearInterval(intervalId);
   }, [workoutTimerRunning]);
 
-  const now = new Date();
-  const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  const isToday = selectedDate === todayDate;
-
-  const formattedDate = new Date(`${selectedDate}T00:00:00`).toLocaleDateString('ja-JP', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    weekday: 'long',
-  });
-
-  const formatDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  // Date formatting (memoized)
+  const { formattedDate, isToday, todayDate } = useMemo(() => {
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const formatted = new Date(`${selectedDate}T00:00:00`).toLocaleDateString('ja-JP', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      weekday: 'long',
+    });
+    return { formattedDate: formatted, isToday: selectedDate === today, todayDate: today };
+  }, [selectedDate]);
 
   const workoutDurationSeconds = getSelectedWorkoutDurationSeconds();
 
-  const toggleEntryDetail = (key: string) => {
-    setExpandedEntries((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
+  // Stable callbacks
+  const handleGoToToday = useCallback(() => setSelectedDate(todayDate), [setSelectedDate, todayDate]);
+  const handleOpenDatePicker = useCallback(() => setDatePickerVisible(true), []);
+  const handleOpenDialog = useCallback(() => setDialogVisible(true), []);
+  const handleCloseDialog = useCallback(() => setDialogVisible(false), []);
+  const handleOpenCustomExerciseDialog = useCallback(() => setCustomExerciseDialogVisible(true), []);
+  const handleCloseCustomExerciseDialog = useCallback(() => setCustomExerciseDialogVisible(false), []);
+  const handleCloseDatePicker = useCallback(() => setDatePickerVisible(false), []);
+  const handleOpenTemplateDialog = useCallback(() => setTemplateDialogVisible(true), []);
+  const handleCloseTemplateDialog = useCallback(() => setTemplateDialogVisible(false), []);
+  const handleOpenSaveTemplateDialog = useCallback(() => setSaveTemplateDialogVisible(true), []);
+  const handleCloseSaveTemplateDialog = useCallback(() => setSaveTemplateDialogVisible(false), []);
+
+  const handleDayPress = useCallback((day: DateData) => {
+    setSelectedDate(day.dateString);
+    setDatePickerVisible(false);
+  }, [setSelectedDate]);
+
+  // Calendar marked dates (memoized)
+  const markedDates = useMemo(() => ({
+    [selectedDate]: { selected: true, selectedColor: darkTheme.colors.primary },
+  }), [selectedDate]);
+
+  // FlashList renderItem
+  const renderExerciseItem = useCallback(({ item }: { item: Exercise }) => {
+    const color = getExerciseColor(item.type, customExercises);
+    const icon = getExerciseIcon(item.type, customExercises);
+    return <ExerciseCard exercise={item} exerciseColor={color} exerciseIcon={icon} />;
+  }, [customExercises]);
+
+  const keyExtractor = useCallback((item: Exercise) => item.id, []);
 
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+      <View style={styles.headerSection}>
         <View style={styles.dateRow}>
           <Text style={styles.dateText}>{formattedDate}</Text>
           <View style={styles.dateActions}>
-            {!isToday && (
-              <Button
-                mode="text"
-                onPress={() => setSelectedDate(todayDate)}
-                compact
-                textColor={darkTheme.colors.primary}
-              >
+            {!isToday ? (
+              <Button mode="text" onPress={handleGoToToday} compact textColor={darkTheme.colors.primary}>
                 今日
               </Button>
-            )}
-            <Button
-              mode="text"
-              onPress={() => setDatePickerVisible(true)}
-              compact
-              textColor={darkTheme.colors.onSurfaceVariant}
-            >
+            ) : null}
+            <Button mode="text" onPress={handleOpenDatePicker} compact textColor={darkTheme.colors.onSurfaceVariant}>
               日付変更
             </Button>
           </View>
         </View>
-        {exercises.length === 0 && (
+        {exercises.length === 0 ? (
           <Button
             mode="outlined"
             icon="file-document-outline"
-            onPress={() => setTemplateDialogVisible(true)}
+            onPress={handleOpenTemplateDialog}
             style={styles.copyButton}
             labelStyle={styles.copyButtonLabel}
             compact
           >
             テンプレート
           </Button>
-        )}
+        ) : null}
         <View style={styles.workoutTimerContainer}>
           <Text style={styles.durationText}>筋トレ時間 {formatDuration(workoutDurationSeconds)}</Text>
           <View style={styles.workoutTimerButtons}>
@@ -253,511 +816,82 @@ export default function HomeScreen() {
             />
           </View>
         </View>
+      </View>
 
-        {exercises.length === 0 ? (
+      {exercises.length === 0 ? (
+        <View style={styles.emptyContainer}>
           <Card style={styles.emptyCard}>
             <Card.Content style={styles.emptyContent}>
               <MaterialCommunityIcons name="dumbbell" size={48} color={darkTheme.colors.onSurfaceVariant} />
               <Text style={styles.emptyText}>今日のトレーニングを追加しましょう</Text>
             </Card.Content>
           </Card>
-        ) : (
-          exercises.map((exercise) => (
-            <Card key={exercise.id} style={[styles.exerciseCard, { borderLeftColor: getExerciseColor(exercise.type) }]}>
-              <Card.Title
-                title={exercise.name}
-                titleStyle={styles.exerciseTitle}
-                left={() => (
-                  <MaterialCommunityIcons
-                    name={getExerciseIcon(exercise.type) as any}
-                    size={24}
-                    color={getExerciseColor(exercise.type)}
-                  />
-                )}
-                right={() => (
-                  <IconButton
-                    icon="delete-outline"
-                    iconColor={darkTheme.colors.error}
-                    onPress={() => removeExercise(exercise.id)}
-                  />
-                )}
-              />
-              <Card.Content>
-                {isDurationBasedExercise(exercise.type) ? (
-                  <View style={styles.durationContainer}>
-                    <View style={styles.durationButtons}>
-                      {DURATION_PRESETS.map((mins) => (
-                        <Button
-                          key={mins}
-                          mode={exercise.durationMinutes === mins ? 'contained' : 'outlined'}
-                          onPress={() => updateDurationMinutes(exercise.id, mins)}
-                          style={styles.durationChip}
-                          buttonColor={exercise.durationMinutes === mins ? getExerciseColor(exercise.type) : undefined}
-                          compact
-                        >
-                          {mins}分
-                        </Button>
-                      ))}
-                    </View>
-                  </View>
-                ) : (
-                  <>
-                    {exercise.sets.map((set, setIndex) => (
-                      <View key={setIndex} style={styles.setContainer}>
-                        <View style={styles.setHeader}>
-                          <Text style={styles.setLabel}>セット {setIndex + 1}</Text>
-                          <View style={styles.setActions}>
-                            <IconButton
-                              icon="content-copy"
-                              iconColor={darkTheme.colors.onSurfaceVariant}
-                              size={18}
-                              onPress={() => copySet(exercise.id, setIndex)}
-                            />
-                            <IconButton
-                              icon="close"
-                              iconColor={darkTheme.colors.error}
-                              size={18}
-                              onPress={() => removeSet(exercise.id, setIndex)}
-                            />
-                          </View>
-                        </View>
-
-                        {set.entries.map((entry, entryIndex) => {
-                          const key = `${exercise.id}-${setIndex}-${entryIndex}`;
-                          const isOpen = !!expandedEntries[key];
-                          return (
-                            <View key={entryIndex} style={styles.entryContainer}>
-                              {set.entries.length > 1 && (
-                                <View style={styles.entryHeader}>
-                                  <Text style={styles.entryLabel}>種目 {entryIndex + 1}</Text>
-                                  <IconButton
-                                    icon="close-circle-outline"
-                                    iconColor={darkTheme.colors.onSurfaceVariant}
-                                    size={16}
-                                    onPress={() => removeSetEntry(exercise.id, setIndex, entryIndex)}
-                                  />
-                                </View>
-                              )}
-
-                              <View style={styles.compactRow}>
-                                <TextInput
-                                  mode="outlined"
-                                  label="回数"
-                                  value={entry.reps > 0 ? entry.reps.toString() : ''}
-                                  onChangeText={(text) => updateEntryReps(exercise.id, setIndex, entryIndex, parseInt(text, 10) || 0)}
-                                  placeholder="0"
-                                  keyboardType="number-pad"
-                                  style={styles.compactInput}
-                                  outlineColor={darkTheme.colors.outline}
-                                  activeOutlineColor={getExerciseColor(exercise.type)}
-                                  dense
-                                />
-
-                                <TextInput
-                                  mode="outlined"
-                                  label="重量"
-                                  value={entry.weight ? entry.weight.toString() : ''}
-                                  onChangeText={(text) => {
-                                    const weight = parseFloat(text);
-                                    updateEntryWeight(
-                                      exercise.id,
-                                      setIndex,
-                                      entryIndex,
-                                      Number.isFinite(weight) ? weight : 0
-                                    );
-                                  }}
-                                  placeholder="kg"
-                                  keyboardType="decimal-pad"
-                                  style={styles.compactInput}
-                                  outlineColor={darkTheme.colors.outline}
-                                  activeOutlineColor={getExerciseColor(exercise.type)}
-                                  dense
-                                />
-                              </View>
-
-                              <Button
-                                mode="text"
-                                onPress={() => toggleEntryDetail(key)}
-                                compact
-                                textColor={darkTheme.colors.onSurfaceVariant}
-                                style={styles.detailToggle}
-                                icon={isOpen ? 'chevron-up' : 'chevron-down'}
-                              >
-                                詳細
-                              </Button>
-
-                              {isOpen && (
-                                <View style={styles.detailBlock}>
-                                  <View style={styles.setRow}>
-                                    <IMESafeTextInput
-                                      label="バリエーション"
-                                      value={entry.variation || ''}
-                                      onSave={(text) => updateEntryVariation(exercise.id, setIndex, entryIndex, text)}
-                                      placeholder="例: ナロー"
-                                      style={styles.variationInput}
-                                      outlineColor={darkTheme.colors.outline}
-                                      activeOutlineColor={getExerciseColor(exercise.type)}
-                                    />
-                                  </View>
-
-                                  <View style={styles.setRow}>
-                                    <IMESafeTextInput
-                                      label="テンポ"
-                                      value={entry.tempo || ''}
-                                      onSave={(text) => updateEntryTempo(exercise.id, setIndex, entryIndex, text)}
-                                      placeholder="例: 2-1-2"
-                                      style={styles.tempoInput}
-                                      outlineColor={darkTheme.colors.outline}
-                                      activeOutlineColor={getExerciseColor(exercise.type)}
-                                    />
-                                  </View>
-                                </View>
-                              )}
-                            </View>
-                          );
-                        })}
-
-                        <Button
-                          mode="text"
-                          icon="plus"
-                          onPress={() => addSetEntry(exercise.id, setIndex)}
-                          textColor={darkTheme.colors.onSurfaceVariant}
-                          compact
-                          style={styles.addEntryButton}
-                        >
-                          セット内追加
-                        </Button>
-                      </View>
-                    ))}
-                    <Button
-                      mode="text"
-                      icon="plus"
-                      onPress={() => addSet(exercise.id)}
-                      textColor={darkTheme.colors.primary}
-                    >
-                      セット追加
-                    </Button>
-                  </>
-                )}
-              </Card.Content>
-            </Card>
-          ))
-        )}
-      </ScrollView>
+        </View>
+      ) : (
+        <FlashList
+          data={exercises}
+          renderItem={renderExerciseItem}
+          keyExtractor={keyExtractor}
+          contentContainerStyle={styles.listContent}
+        />
+      )}
 
       <View style={styles.bottomButtons}>
         <Button
           mode="contained"
           icon="plus"
-          onPress={() => setDialogVisible(true)}
-          style={[styles.addButton, { flex: 1 }]}
+          onPress={handleOpenDialog}
+          style={styles.addButtonFlex}
           contentStyle={styles.addButtonContent}
           buttonColor="#10b981"
         >
           種目追加
         </Button>
-        {exercises.length > 0 && (
+        {exercises.length > 0 ? (
           <Button
             mode="outlined"
             icon="bookmark-plus-outline"
-            onPress={() => setSaveTemplateDialogVisible(true)}
-            style={[styles.addButton, { flex: 1, marginLeft: 8 }]}
+            onPress={handleOpenSaveTemplateDialog}
+            style={styles.saveButtonFlex}
             contentStyle={styles.addButtonContent}
           >
             メニュー保存
           </Button>
-        )}
+        ) : null}
       </View>
 
       <Portal>
-        <Dialog visible={dialogVisible} onDismiss={() => setDialogVisible(false)} style={styles.dialog}>
-          <Dialog.Title>種目を選択</Dialog.Title>
-          <Dialog.Content>
-            <ScrollView style={styles.exerciseList}>
-              {exerciseTypes.map((type) => (
-                <Swipeable
-                  key={type}
-                  renderRightActions={() => (
-                    <Pressable
-                      style={styles.swipeDeleteAction}
-                      onPress={() => hideBuiltinExercise(type)}
-                    >
-                      <MaterialCommunityIcons name="delete-outline" size={22} color="white" />
-                    </Pressable>
-                  )}
-                  overshootRight={false}
-                >
-                  <Button
-                    mode="outlined"
-                    onPress={() => handleAddExercise(type)}
-                    style={[styles.exerciseButton, { borderColor: getExerciseColor(type) }]}
-                    labelStyle={{ color: getExerciseColor(type) }}
-                    icon={() => (
-                      <MaterialCommunityIcons
-                        name={getExerciseIcon(type) as any}
-                        size={20}
-                        color={getExerciseColor(type)}
-                      />
-                    )}
-                    contentStyle={styles.exerciseButtonContent}
-                  >
-                    {BUILTIN_EXERCISE_NAMES[type]}
-                  </Button>
-                </Swipeable>
-              ))}
-              {customExercises.map((custom) => (
-                <Swipeable
-                  key={custom.id}
-                  renderRightActions={() => (
-                    <Pressable
-                      style={styles.swipeDeleteAction}
-                      onPress={() => {
-                        Alert.alert(
-                          'カスタム種目の削除',
-                          `「${custom.name}」を削除しますか？`,
-                          [
-                            { text: 'キャンセル', style: 'cancel' },
-                            { text: '削除', style: 'destructive', onPress: () => removeCustomExercise(custom.id) },
-                          ]
-                        );
-                      }}
-                    >
-                      <MaterialCommunityIcons name="delete-outline" size={22} color="white" />
-                    </Pressable>
-                  )}
-                  overshootRight={false}
-                >
-                  <Button
-                    mode="outlined"
-                    onPress={() => handleAddExercise(custom.id)}
-                    style={[styles.exerciseButton, { borderColor: custom.color }]}
-                    labelStyle={{ color: custom.color }}
-                    icon={() => (
-                      <MaterialCommunityIcons
-                        name={custom.icon as any}
-                        size={20}
-                        color={custom.color}
-                      />
-                    )}
-                    contentStyle={styles.exerciseButtonContent}
-                  >
-                    {custom.name}
-                  </Button>
-                </Swipeable>
-              ))}
-              {hiddenBuiltinExercises.length > 0 && (
-                <View style={styles.hiddenExercisesSection}>
-                  <Text style={styles.hiddenExercisesLabel}>非表示の種目</Text>
-                  {hiddenBuiltinExercises.map((type) => (
-                    <Button
-                      key={type}
-                      mode="outlined"
-                      onPress={() => showBuiltinExercise(type)}
-                      style={styles.hiddenExerciseButton}
-                      icon="eye-outline"
-                    >
-                      {BUILTIN_EXERCISE_NAMES[type as keyof typeof BUILTIN_EXERCISE_NAMES] || type}
-                    </Button>
-                  ))}
-                </View>
-              )}
-              <Button
-                mode="contained"
-                onPress={() => {
-                  setDialogVisible(false);
-                  setCustomExerciseDialogVisible(true);
-                }}
-                style={styles.addCustomButton}
-                icon="plus"
-              >
-                カスタム種目を追加
-              </Button>
-            </ScrollView>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setDialogVisible(false)}>キャンセル</Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
-
-      <Portal>
-        <Dialog visible={datePickerVisible} onDismiss={() => setDatePickerVisible(false)} style={styles.dialog}>
+        <ExerciseSelectDialog
+          visible={dialogVisible}
+          onDismiss={handleCloseDialog}
+          onOpenCustomDialog={handleOpenCustomExerciseDialog}
+        />
+        <CustomExerciseDialog
+          visible={customExerciseDialogVisible}
+          onDismiss={handleCloseCustomExerciseDialog}
+        />
+        <Dialog visible={datePickerVisible} onDismiss={handleCloseDatePicker} style={styles.dialog}>
           <Dialog.Title>日付を選択</Dialog.Title>
           <Dialog.Content>
             <Calendar
               theme={calendarTheme}
-              markedDates={{
-                [selectedDate]: {
-                  selected: true,
-                  selectedColor: darkTheme.colors.primary,
-                },
-              }}
-              onDayPress={(day: DateData) => {
-                setSelectedDate(day.dateString);
-                setDatePickerVisible(false);
-              }}
+              markedDates={markedDates}
+              onDayPress={handleDayPress}
               enableSwipeMonths
             />
           </Dialog.Content>
           <Dialog.Actions>
-            <Button onPress={() => setDatePickerVisible(false)}>キャンセル</Button>
+            <Button onPress={handleCloseDatePicker}>キャンセル</Button>
           </Dialog.Actions>
         </Dialog>
-      </Portal>
-
-      <Portal>
-        <Dialog visible={customExerciseDialogVisible} onDismiss={() => setCustomExerciseDialogVisible(false)} style={styles.dialog}>
-          <Dialog.Title>カスタム種目を追加</Dialog.Title>
-          <Dialog.Content>
-            <Text style={styles.customExerciseLabel}>種目名</Text>
-            <RNTextInput
-              defaultValue=""
-              onChangeText={(text) => {
-                customExerciseNameRef.current = text;
-                const isEmpty = !text.trim();
-                setCustomExerciseNameEmpty((prev) => (prev !== isEmpty ? isEmpty : prev));
-              }}
-              placeholder="例: ベンチプレス"
-              placeholderTextColor={darkTheme.colors.onSurfaceVariant}
-              style={styles.customExerciseNativeInput}
-              autoFocus={true}
-              returnKeyType="done"
-              blurOnSubmit={true}
-            />
-            <Text style={styles.customExerciseLabel}>アイコン</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.iconScroll}>
-              {['dumbbell', 'arm-flex', 'human', 'human-handsup', 'run', 'boxing-glove', 'karate', 'weight-lifter', 'yoga', 'bike'].map((icon) => (
-                <IconButton
-                  key={icon}
-                  icon={icon}
-                  iconColor={customExerciseIcon === icon ? darkTheme.colors.primary : darkTheme.colors.onSurfaceVariant}
-                  containerColor={customExerciseIcon === icon ? darkTheme.colors.primaryContainer : 'transparent'}
-                  onPress={() => setCustomExerciseIcon(icon)}
-                  size={24}
-                />
-              ))}
-            </ScrollView>
-            <Text style={styles.customExerciseLabel}>カラー</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.colorScroll}>
-              {['#3b82f6', '#22c55e', '#f59e0b', '#f472b6', '#a855f7', '#ef4444', '#14b8a6', '#6366f1', '#ec4899', '#06b6d4'].map((color) => (
-                <IconButton
-                  key={color}
-                  icon={customExerciseColor === color ? 'check' : 'circle'}
-                  iconColor={color}
-                  containerColor={customExerciseColor === color ? `${color}20` : 'transparent'}
-                  onPress={() => setCustomExerciseColor(color)}
-                  size={24}
-                />
-              ))}
-            </ScrollView>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setCustomExerciseDialogVisible(false)}>キャンセル</Button>
-            <Button onPress={handleAddCustomExercise} disabled={customExerciseNameEmpty}>追加</Button>
-          </Dialog.Actions>
-        </Dialog>
-
-        <Dialog
+        <TemplateSelectDialog
           visible={templateDialogVisible}
-          onDismiss={() => setTemplateDialogVisible(false)}
-          style={styles.dialog}
-        >
-          <Dialog.Title>テンプレートを選択</Dialog.Title>
-          <Dialog.Content>
-            {getTemplates().length === 0 ? (
-              <Text style={styles.emptyTemplateText}>
-                保存されたテンプレートがありません
-              </Text>
-            ) : (
-              <ScrollView style={styles.templateList}>
-                {getTemplates().map((template) => (
-                  <View key={template.id} style={styles.templateItem}>
-                    <Button
-                      mode="outlined"
-                      onPress={() => {
-                        applyTemplate(template.id);
-                        setTemplateDialogVisible(false);
-                      }}
-                      style={styles.templateButton}
-                    >
-                      {template.name}
-                    </Button>
-                    <IconButton
-                      icon="delete"
-                      size={20}
-                      onPress={() => {
-                        Alert.alert(
-                          'テンプレートの削除',
-                          `「${template.name}」を削除しますか？`,
-                          [
-                            { text: 'キャンセル', style: 'cancel' },
-                            {
-                              text: '削除',
-                              style: 'destructive',
-                              onPress: () => deleteTemplate(template.id),
-                            },
-                          ]
-                        );
-                      }}
-                    />
-                  </View>
-                ))}
-              </ScrollView>
-            )}
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setTemplateDialogVisible(false)}>閉じる</Button>
-          </Dialog.Actions>
-        </Dialog>
-
-        <Dialog
+          onDismiss={handleCloseTemplateDialog}
+        />
+        <SaveTemplateDialog
           visible={saveTemplateDialogVisible}
-          onDismiss={() => {
-            setSaveTemplateDialogVisible(false);
-            templateNameRef.current = '';
-            setTemplateNameEmpty(true);
-          }}
-          style={styles.dialog}
-        >
-          <Dialog.Title>テンプレートとして保存</Dialog.Title>
-          <Dialog.Content>
-            <RNTextInput
-              defaultValue=""
-              onChangeText={(text) => {
-                templateNameRef.current = text;
-                const isEmpty = !text.trim();
-                setTemplateNameEmpty((prev) => (prev !== isEmpty ? isEmpty : prev));
-              }}
-              placeholder="テンプレート名（例: 胸の日）"
-              style={styles.textInput}
-            />
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button
-              onPress={() => {
-                setSaveTemplateDialogVisible(false);
-                templateNameRef.current = '';
-                setTemplateNameEmpty(true);
-              }}
-            >
-              キャンセル
-            </Button>
-            <Button
-              onPress={() => {
-                const name = templateNameRef.current.trim();
-                if (name) {
-                  saveTemplate(name);
-                  setSaveTemplateDialogVisible(false);
-                  templateNameRef.current = '';
-                  setTemplateNameEmpty(true);
-                }
-              }}
-              disabled={templateNameEmpty}
-            >
-              保存
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
+          onDismiss={handleCloseSaveTemplateDialog}
+        />
       </Portal>
     </View>
   );
@@ -768,12 +902,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: darkTheme.colors.background,
   },
-  scrollView: {
-    flex: 1,
+  headerSection: {
+    padding: 16,
+    paddingBottom: 0,
   },
-  scrollContent: {
+  listContent: {
     padding: 16,
     paddingBottom: 100,
+  },
+  emptyContainer: {
+    flex: 1,
+    padding: 16,
   },
   dateText: {
     fontSize: 18,
@@ -889,11 +1028,6 @@ const styles = StyleSheet.create({
     color: darkTheme.colors.onSurfaceVariant,
     fontWeight: '500',
   },
-  repsInput: {
-    width: 80,
-    height: 40,
-    backgroundColor: darkTheme.colors.surfaceVariant,
-  },
   variationInput: {
     flex: 1,
     height: 40,
@@ -923,8 +1057,12 @@ const styles = StyleSheet.create({
   durationChip: {
     flex: 1,
   },
-  addButton: {
-    // position moved to bottomButtons
+  addButtonFlex: {
+    flex: 1,
+  },
+  saveButtonFlex: {
+    flex: 1,
+    marginLeft: 8,
   },
   addButtonContent: {
     paddingVertical: 8,
@@ -944,25 +1082,10 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     paddingVertical: 4,
   },
-  customExerciseRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginBottom: 8,
-  },
-  customExerciseButton: {
-    flex: 1,
-    marginBottom: 0,
-    marginHorizontal: 0,
-  },
   addCustomButton: {
     marginTop: 8,
     marginHorizontal: 16,
     backgroundColor: darkTheme.colors.primary,
-  },
-  customExerciseInput: {
-    marginBottom: 16,
-    backgroundColor: darkTheme.colors.surfaceVariant,
   },
   customExerciseNativeInput: {
     backgroundColor: darkTheme.colors.surfaceVariant,
