@@ -222,7 +222,8 @@ export default function TimerScreen() {
         // playBeepをstate setter外で直接呼び出し（タイミング精度向上）
         playBeep(isAccent);
 
-        if (nextBeat === 0) {
+        if (nextBeat === beatsRef.current - 1) {
+          // 小節の最後のビートでセット数を読み上げ
           setBarCount((prevBars) => {
             const newBarCount = prevBars + 1;
             Speech.speak(`${newBarCount}`, { language: 'en-US', rate: 1.1, pitch: 1.05 });
