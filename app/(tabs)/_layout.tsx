@@ -10,9 +10,12 @@ export default function TabLayout() {
           backgroundColor: darkTheme.colors.surface,
         },
         headerTintColor: darkTheme.colors.onSurface,
+        headerShadowVisible: false,
         tabBarStyle: {
-          backgroundColor: darkTheme.colors.surface,
-          borderTopColor: darkTheme.colors.outline,
+          backgroundColor: 'rgba(12,12,18,0.92)',
+          borderTopWidth: 0.5,
+          borderTopColor: '#2A2A36',
+          position: 'absolute',
         },
         tabBarActiveTintColor: darkTheme.colors.primary,
         tabBarInactiveTintColor: darkTheme.colors.onSurfaceVariant,
@@ -22,6 +25,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'トレーニング',
+          headerShown: false,
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="dumbbell" size={size} color={color} />
           ),

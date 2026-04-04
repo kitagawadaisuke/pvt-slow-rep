@@ -71,6 +71,8 @@ interface WorkoutState {
   updateTemplateEntryTempo: (templateId: string, exerciseId: string, setIndex: number, entryIndex: number, tempo: string) => void;
   addTemplateSet: (templateId: string, exerciseId: string) => void;
   removeTemplateSet: (templateId: string, exerciseId: string, setIndex: number) => void;
+  addTemplateSetEntry: (templateId: string, exerciseId: string, setIndex: number) => void;
+  removeTemplateSetEntry: (templateId: string, exerciseId: string, setIndex: number, entryIndex: number) => void;
   applyTemplate: (id: string) => void;
   hideBuiltinExercise: (type: string) => void;
   showBuiltinExercise: (type: string) => void;
@@ -861,6 +863,54 @@ export const useWorkoutStore = create<WorkoutState>()(
                   exercises: t.exercises.map((e) =>
                     e.id === exerciseId
                       ? { ...e, sets: e.sets.filter((_, si) => si !== setIndex) }
+                      : e
+                  ),
+                }
+              : t
+          ),
+        }));
+      },
+
+      addTemplateSetEntry: (templateId: string, exerciseId: string, setIndex: number) => {
+        set((state) => ({
+          templates: state.templates.map((t) =>
+            t.id === templateId
+              ? {
+                  ...t,
+                  exercises: t.exercises.map((e) =>
+                    e.id === exerciseId
+                      ? {
+                          ...e,
+                          sets: e.sets.map((s, si) =>
+                            si === setIndex
+                              ? { ...s, entries: [...s.entries, createEmptyEntry()] }
+                              : s
+                          ),
+                        }
+                      : e
+                  ),
+                }
+              : t
+          ),
+        }));
+      },
+
+      removeTemplateSetEntry: (templateId: string, exerciseId: string, setIndex: number, entryIndex: number) => {
+        set((state) => ({
+          templates: state.templates.map((t) =>
+            t.id === templateId
+              ? {
+                  ...t,
+                  exercises: t.exercises.map((e) =>
+                    e.id === exerciseId
+                      ? {
+                          ...e,
+                          sets: e.sets.map((s, si) =>
+                            si === setIndex
+                              ? { ...s, entries: s.entries.filter((_, ei) => ei !== entryIndex) }
+                              : s
+                          ),
+                        }
                       : e
                   ),
                 }

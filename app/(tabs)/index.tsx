@@ -5,6 +5,7 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { Text, Card, Button, IconButton, TextInput, Portal, Dialog } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Calendar, DateData } from 'react-native-calendars';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useWorkoutStore } from '@/stores/workoutStore';
 import { useShallow } from 'zustand/react/shallow';
 import { darkTheme, colors, calendarTheme } from '@/constants/theme';
@@ -582,6 +583,7 @@ const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) 
   const applyTemplate = useWorkoutStore((s) => s.applyTemplate);
   const deleteTemplate = useWorkoutStore((s) => s.deleteTemplate);
   const renameTemplate = useWorkoutStore((s) => s.renameTemplate);
+  const saveTemplate = useWorkoutStore((s) => s.saveTemplate);
   const addExerciseToTemplate = useWorkoutStore((s) => s.addExerciseToTemplate);
   const removeExerciseFromTemplate = useWorkoutStore((s) => s.removeExerciseFromTemplate);
   const updateTemplateEntryReps = useWorkoutStore((s) => s.updateTemplateEntryReps);
@@ -590,12 +592,18 @@ const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) 
   const updateTemplateEntryTempo = useWorkoutStore((s) => s.updateTemplateEntryTempo);
   const addTemplateSet = useWorkoutStore((s) => s.addTemplateSet);
   const removeTemplateSet = useWorkoutStore((s) => s.removeTemplateSet);
+  const addTemplateSetEntry = useWorkoutStore((s) => s.addTemplateSetEntry);
+  const removeTemplateSetEntry = useWorkoutStore((s) => s.removeTemplateSetEntry);
   const hiddenBuiltinExercises = useWorkoutStore((s) => s.hiddenBuiltinExercises);
+  const hasExercises = useWorkoutStore((s) => (s.workouts.find((w) => w.date === s.selectedDate)?.exercises.length ?? 0) > 0);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [showAddExercise, setShowAddExercise] = useState(false);
+  const [showSaveNew, setShowSaveNew] = useState(false);
+  const [saveNameEmpty, setSaveNameEmpty] = useState(true);
   const renameRef = useRef('');
+  const saveNameRef = useRef('');
 
   const allBuiltinTypes: BuiltinExerciseType[] = ['pushup', 'squat', 'pullup', 'bodypump', 'bodycombat', 'leapfight'];
   const availableTypes = useMemo(
@@ -634,8 +642,27 @@ const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) 
     setEditingId(null);
     setShowAddExercise(false);
     setRenameId(null);
+    setShowSaveNew(false);
+    saveNameRef.current = '';
+    setSaveNameEmpty(true);
     onDismiss();
   }, [onDismiss]);
+
+  const handleSaveNew = useCallback(() => {
+    const name = saveNameRef.current.trim();
+    if (name) {
+      saveTemplate(name);
+      saveNameRef.current = '';
+      setSaveNameEmpty(true);
+      setShowSaveNew(false);
+    }
+  }, [saveTemplate]);
+
+  const handleSaveNameChange = useCallback((text: string) => {
+    saveNameRef.current = text;
+    const isEmpty = !text.trim();
+    setSaveNameEmpty((prev) => (prev !== isEmpty ? isEmpty : prev));
+  }, []);
 
   // 編集モード
   if (editingId && editingTemplate) {
@@ -673,7 +700,15 @@ const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) 
                       {set.entries.map((entry, entryIndex) => (
                         <View key={entryIndex} style={styles.templateEntryBlock}>
                           {set.entries.length > 1 ? (
-                            <Text style={styles.templateEntryLabel}>種目 {entryIndex + 1}</Text>
+                            <View style={styles.templateEntryHeader}>
+                              <Text style={styles.templateEntryLabel}>種目 {entryIndex + 1}</Text>
+                              <IconButton
+                                icon="close-circle-outline"
+                                size={14}
+                                iconColor={darkTheme.colors.onSurfaceVariant}
+                                onPress={() => removeTemplateSetEntry(editingId, exercise.id, setIndex, entryIndex)}
+                              />
+                            </View>
                           ) : null}
                           <View style={styles.templateEntryRow}>
                             <TextInput
@@ -728,13 +763,23 @@ const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) 
                           </View>
                         </View>
                       ))}
+                      <Button
+                        mode="text"
+                        icon="plus"
+                        onPress={() => addTemplateSetEntry(editingId, exercise.id, setIndex)}
+                        textColor={darkTheme.colors.onSurfaceVariant}
+                        compact
+                        style={styles.templateAddEntryButton}
+                      >
+                        セット内追加
+                      </Button>
                     </View>
                   ))}
                   <Button
                     mode="text"
                     icon="plus"
                     onPress={() => addTemplateSet(editingId, exercise.id)}
-                    textColor={darkTheme.colors.onSurfaceVariant}
+                    textColor={darkTheme.colors.primary}
                     compact
                     style={styles.templateAddSetButton}
                   >
@@ -806,13 +851,13 @@ const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) 
   // 一覧モード
   return (
     <Dialog visible={visible} onDismiss={handleDismiss} style={styles.dialog}>
-      <Dialog.Title>テンプレートを選択</Dialog.Title>
+      <Dialog.Title>メニューを選択</Dialog.Title>
       <Dialog.Content>
-        {templates.length === 0 ? (
-          <Text style={styles.emptyTemplateText}>保存されたテンプレートがありません</Text>
-        ) : (
-          <ScrollView style={styles.templateList}>
-            {templates.map((template) => (
+        <ScrollView style={styles.templateList}>
+          {templates.length === 0 ? (
+            <Text style={styles.emptyTemplateText}>保存されたメニューがありません</Text>
+          ) : (
+            templates.map((template) => (
               <View key={template.id} style={styles.templateItem}>
                 {renameId === template.id ? (
                   <View style={styles.renameRow}>
@@ -849,7 +894,7 @@ const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) 
                       size={20}
                       onPress={() => {
                         Alert.alert(
-                          'テンプレートの削除',
+                          'メニューの削除',
                           `「${template.name}」を削除しますか？`,
                           [
                             { text: 'キャンセル', style: 'cancel' },
@@ -861,9 +906,37 @@ const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) 
                   </>
                 )}
               </View>
-            ))}
-          </ScrollView>
-        )}
+            ))
+          )}
+          {hasExercises ? (
+            <View style={styles.saveNewSection}>
+              {showSaveNew ? (
+                <View style={styles.saveNewRow}>
+                  <RNTextInput
+                    defaultValue=""
+                    onChangeText={handleSaveNameChange}
+                    placeholder="メニュー名（例: 胸の日）"
+                    placeholderTextColor={darkTheme.colors.onSurfaceVariant}
+                    style={[styles.textInput, styles.renameInput]}
+                    autoFocus
+                    onSubmitEditing={handleSaveNew}
+                  />
+                  <IconButton icon="check" size={20} onPress={handleSaveNew} disabled={saveNameEmpty} />
+                  <IconButton icon="close" size={20} onPress={() => setShowSaveNew(false)} />
+                </View>
+              ) : (
+                <Button
+                  mode="contained"
+                  icon="content-save-plus"
+                  onPress={() => setShowSaveNew(true)}
+                  buttonColor={darkTheme.colors.primary}
+                >
+                  今のメニューを保存
+                </Button>
+              )}
+            </View>
+          ) : null}
+        </ScrollView>
       </Dialog.Content>
       <Dialog.Actions>
         <Button onPress={handleDismiss}>閉じる</Button>
@@ -872,82 +945,6 @@ const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) 
   );
 });
 
-// --- SaveTemplateDialog コンポーネント ---
-const SaveTemplateDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) => {
-  const saveTemplate = useWorkoutStore((s) => s.saveTemplate);
-  const updateTemplate = useWorkoutStore((s) => s.updateTemplate);
-  const templates = useWorkoutStore((s) => s.templates);
-  const templateNameRef = useRef('');
-  const [templateNameEmpty, setTemplateNameEmpty] = useState(true);
-
-  const handleDismiss = useCallback(() => {
-    templateNameRef.current = '';
-    setTemplateNameEmpty(true);
-    onDismiss();
-  }, [onDismiss]);
-
-  const handleSave = useCallback(() => {
-    const name = templateNameRef.current.trim();
-    if (name) {
-      saveTemplate(name);
-      templateNameRef.current = '';
-      setTemplateNameEmpty(true);
-      onDismiss();
-    }
-  }, [saveTemplate, onDismiss]);
-
-  const handleOverwrite = useCallback((id: string, name: string) => {
-    Alert.alert(
-      'テンプレートの上書き',
-      `「${name}」を今のメニューで上書きしますか？`,
-      [
-        { text: 'キャンセル', style: 'cancel' },
-        { text: '上書き', onPress: () => { updateTemplate(id); onDismiss(); } },
-      ]
-    );
-  }, [updateTemplate, onDismiss]);
-
-  const handleNameChange = useCallback((text: string) => {
-    templateNameRef.current = text;
-    const isEmpty = !text.trim();
-    setTemplateNameEmpty((prev) => (prev !== isEmpty ? isEmpty : prev));
-  }, []);
-
-  return (
-    <Dialog visible={visible} onDismiss={handleDismiss} style={styles.dialog}>
-      <Dialog.Title>テンプレートとして保存</Dialog.Title>
-      <Dialog.Content>
-        <RNTextInput
-          defaultValue=""
-          onChangeText={handleNameChange}
-          placeholder="新しいテンプレート名（例: 胸の日）"
-          style={styles.textInput}
-        />
-        {templates.length > 0 ? (
-          <View style={styles.overwriteSection}>
-            <Text style={styles.overwriteLabel}>既存テンプレートに上書き</Text>
-            {templates.map((t) => (
-              <Button
-                key={t.id}
-                mode="outlined"
-                onPress={() => handleOverwrite(t.id, t.name)}
-                style={styles.overwriteButton}
-                icon="content-save-edit"
-                compact
-              >
-                {t.name}
-              </Button>
-            ))}
-          </View>
-        ) : null}
-      </Dialog.Content>
-      <Dialog.Actions>
-        <Button onPress={handleDismiss}>キャンセル</Button>
-        <Button onPress={handleSave} disabled={templateNameEmpty}>新規保存</Button>
-      </Dialog.Actions>
-    </Dialog>
-  );
-});
 
 // --- メインHomeScreen ---
 
@@ -972,7 +969,6 @@ export default function HomeScreen() {
   const [customExerciseDialogVisible, setCustomExerciseDialogVisible] = useState(false);
   const [datePickerVisible, setDatePickerVisible] = useState(false);
   const [templateDialogVisible, setTemplateDialogVisible] = useState(false);
-  const [saveTemplateDialogVisible, setSaveTemplateDialogVisible] = useState(false);
 
   // Timer tick for duration display
   const [, setTimerTick] = useState(0);
@@ -1009,8 +1005,6 @@ export default function HomeScreen() {
   const handleCloseDatePicker = useCallback(() => setDatePickerVisible(false), []);
   const handleOpenTemplateDialog = useCallback(() => setTemplateDialogVisible(true), []);
   const handleCloseTemplateDialog = useCallback(() => setTemplateDialogVisible(false), []);
-  const handleOpenSaveTemplateDialog = useCallback(() => setSaveTemplateDialogVisible(true), []);
-  const handleCloseSaveTemplateDialog = useCallback(() => setSaveTemplateDialogVisible(false), []);
 
   const handleDayPress = useCallback((day: DateData) => {
     setSelectedDate(day.dateString);
@@ -1031,71 +1025,65 @@ export default function HomeScreen() {
 
   const keyExtractor = useCallback((item: Exercise) => item.id, []);
 
+  const insets = useSafeAreaInsets();
+
   return (
     <View style={styles.container}>
-      <View style={styles.headerSection}>
+      <View style={[styles.headerSection, { paddingTop: insets.top + 8 }]}>
         <View style={styles.dateRow}>
-          <Text style={styles.dateText}>{formattedDate}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.dateText}>{formattedDate}</Text>
+          </View>
           <View style={styles.dateActions}>
             {!isToday ? (
-              <Button mode="text" onPress={handleGoToToday} compact textColor={darkTheme.colors.primary}>
-                今日
-              </Button>
+              <Pressable onPress={handleGoToToday} style={styles.dateActionPill}>
+                <Text style={styles.dateActionTextAccent}>今日</Text>
+              </Pressable>
             ) : null}
-            <Button mode="text" onPress={handleOpenDatePicker} compact textColor={darkTheme.colors.onSurfaceVariant}>
-              日付変更
-            </Button>
+            <Pressable onPress={handleOpenDatePicker} style={styles.dateActionPill}>
+              <MaterialCommunityIcons name="calendar-outline" size={17} color="#6B7280" />
+            </Pressable>
+            <Pressable onPress={handleOpenTemplateDialog} style={styles.copyButton}>
+              <MaterialCommunityIcons name="file-document-outline" size={17} color="#6B7280" />
+            </Pressable>
           </View>
         </View>
-        <Button
-          mode="outlined"
-          icon="file-document-outline"
-          onPress={handleOpenTemplateDialog}
-          style={styles.copyButton}
-          labelStyle={styles.copyButtonLabel}
-          compact
-        >
-          テンプレート
-        </Button>
+
         <View style={styles.workoutTimerContainer}>
-          <Text style={styles.durationText}>筋トレ時間 {formatDuration(workoutDurationSeconds)}</Text>
+          <Text style={styles.durationText}>筋トレ時間</Text>
+          <Text style={styles.timerDisplay}>{formatDuration(workoutDurationSeconds)}</Text>
           <View style={styles.workoutTimerButtons}>
-            <IconButton
-              icon={workoutTimerRunning ? 'pause-circle' : 'play-circle'}
-              mode="contained"
-              iconColor={darkTheme.colors.onPrimary}
-              containerColor={darkTheme.colors.primary}
-              size={32}
+            <Pressable
               onPress={workoutTimerRunning ? stopWorkoutTimer : startWorkoutTimer}
-            />
-            <IconButton
-              icon="refresh-circle"
-              mode="contained-tonal"
-              iconColor="#94a3b8"
-              containerColor="#334155"
-              size={32}
-              onPress={resetWorkoutTimer}
-            />
-            <IconButton
-              icon="check-circle"
-              mode="contained"
-              iconColor={darkTheme.colors.onPrimary}
-              containerColor={darkTheme.colors.primary}
-              size={32}
-              onPress={stopWorkoutTimer}
-            />
+              style={[styles.timerButtonWithLabel, workoutTimerRunning && styles.timerButtonRunning]}
+            >
+              <MaterialCommunityIcons
+                name={workoutTimerRunning ? 'pause' : 'play'}
+                size={15}
+                color="#ffffff"
+              />
+              <Text style={styles.timerButtonLabel}>
+                {workoutTimerRunning ? '一時停止' : '開始'}
+              </Text>
+            </Pressable>
+            {workoutTimerRunning ? (
+              <Pressable onPress={stopWorkoutTimer} style={styles.timerTextButton}>
+                <Text style={styles.timerTextButtonLabel}>完了</Text>
+              </Pressable>
+            ) : null}
+            <Pressable onPress={resetWorkoutTimer} style={styles.timerTextButton}>
+              <Text style={styles.timerTextButtonLabel}>リセット</Text>
+            </Pressable>
           </View>
         </View>
       </View>
 
       {exercises.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Card style={styles.emptyCard}>
-            <Card.Content style={styles.emptyContent}>
-              <MaterialCommunityIcons name="dumbbell" size={48} color={darkTheme.colors.onSurfaceVariant} />
-              <Text style={styles.emptyText}>今日のトレーニングを追加しましょう</Text>
-            </Card.Content>
-          </Card>
+          <View style={styles.emptyContent}>
+            <MaterialCommunityIcons name="dumbbell" size={64} color="#6B7280" style={{ opacity: 0.4 }} />
+            <Text style={styles.emptyText}>種目を追加して{'\n'}トレーニングを始めましょう</Text>
+          </View>
         </View>
       ) : (
         <FlashList
@@ -1106,28 +1094,16 @@ export default function HomeScreen() {
         />
       )}
 
-      <View style={styles.bottomButtons}>
-        <Button
-          mode="contained"
-          icon="plus"
+      <View style={[styles.bottomButtons, { paddingBottom: insets.bottom + 88 }]}>
+        <Pressable
           onPress={handleOpenDialog}
           style={styles.addButtonFlex}
-          contentStyle={styles.addButtonContent}
-          buttonColor="#10b981"
         >
-          種目追加
-        </Button>
-        {exercises.length > 0 ? (
-          <Button
-            mode="outlined"
-            icon="bookmark-plus-outline"
-            onPress={handleOpenSaveTemplateDialog}
-            style={styles.saveButtonFlex}
-            contentStyle={styles.addButtonContent}
-          >
-            テンプレ保存
-          </Button>
-        ) : null}
+          <View style={styles.addButtonContent}>
+            <MaterialCommunityIcons name="plus" size={17} color="#ffffff" />
+            <Text style={styles.addButtonLabel}>種目追加</Text>
+          </View>
+        </Pressable>
       </View>
 
       <Portal>
@@ -1158,10 +1134,6 @@ export default function HomeScreen() {
           visible={templateDialogVisible}
           onDismiss={handleCloseTemplateDialog}
         />
-        <SaveTemplateDialog
-          visible={saveTemplateDialogVisible}
-          onDismiss={handleCloseSaveTemplateDialog}
-        />
       </Portal>
     </View>
   );
@@ -1170,83 +1142,128 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: darkTheme.colors.background,
+    backgroundColor: '#0C0C12',
   },
   headerSection: {
-    padding: 16,
-    paddingBottom: 0,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    backgroundColor: '#1C1C26',
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#2A2A36',
   },
   listContent: {
     padding: 16,
-    paddingBottom: 100,
+    paddingBottom: 120,
   },
   emptyContainer: {
     flex: 1,
-    padding: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
   },
   dateText: {
-    fontSize: 18,
-    color: darkTheme.colors.onSurface,
-    fontWeight: '600',
+    fontSize: 22,
+    color: '#F0F0F5',
+    fontWeight: '700',
   },
   dateRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   dateActions: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
-  copyButton: {
-    marginBottom: 12,
-    borderColor: '#64748b',
-  },
-  copyButtonLabel: {
-    color: '#94a3b8',
-  },
-  durationText: {
-    fontSize: 14,
-    color: darkTheme.colors.onSurfaceVariant,
-    marginBottom: 8,
-  },
-  workoutTimerContainer: {
-    marginBottom: 16,
-    alignItems: 'center',
-  },
-  workoutTimerButtons: {
-    flexDirection: 'row',
-    gap: 12,
+  dateActionPill: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#252530',
     justifyContent: 'center',
     alignItems: 'center',
   },
+  dateActionTextAccent: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#6366f1',
+  },
+  copyButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#252530',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  copyButtonLabel: {
+    color: '#6B7280',
+  },
+  durationText: {
+    fontSize: 11,
+    color: '#6B7280',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  timerDisplay: {
+    fontSize: 28,
+    color: '#F0F0F5',
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+    marginTop: 2,
+  },
+  workoutTimerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    marginBottom: 8,
+  },
+  workoutTimerButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+    marginLeft: 'auto',
+  },
   emptyCard: {
-    backgroundColor: darkTheme.colors.surface,
+    backgroundColor: 'transparent',
   },
   emptyContent: {
     alignItems: 'center',
-    paddingVertical: 40,
+    justifyContent: 'center',
   },
   emptyText: {
     marginTop: 16,
-    color: darkTheme.colors.onSurfaceVariant,
-    fontSize: 16,
+    color: '#4B5563',
+    fontSize: 15,
+    textAlign: 'center',
+    lineHeight: 22,
   },
   exerciseCard: {
-    backgroundColor: darkTheme.colors.surface,
-    marginBottom: 12,
-    borderLeftWidth: 4,
+    backgroundColor: '#1C1C26',
+    marginBottom: 16,
+    borderLeftWidth: 3,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#2A2A36',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
   },
   exerciseTitle: {
-    color: darkTheme.colors.onSurface,
+    color: '#F0F0F5',
     fontWeight: '600',
+    fontSize: 15,
   },
   setContainer: {
     marginBottom: 16,
-    paddingBottom: 12,
+    paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: darkTheme.colors.outline,
+    borderBottomColor: '#2A2A36',
   },
   setHeader: {
     flexDirection: 'row',
@@ -1267,8 +1284,8 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   entryLabel: {
-    color: darkTheme.colors.onSurfaceVariant,
-    fontSize: 12,
+    color: '#6B7280',
+    fontSize: 11,
   },
   setRow: {
     flexDirection: 'row',
@@ -1285,7 +1302,8 @@ const styles = StyleSheet.create({
   compactInput: {
     flex: 1,
     height: 40,
-    backgroundColor: darkTheme.colors.surfaceVariant,
+    backgroundColor: '#252530',
+    borderRadius: 12,
   },
   detailToggle: {
     alignSelf: 'flex-start',
@@ -1295,18 +1313,21 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   setLabel: {
-    color: darkTheme.colors.onSurfaceVariant,
+    color: '#6B7280',
     fontWeight: '500',
+    fontSize: 13,
   },
   variationInput: {
     flex: 1,
     height: 40,
-    backgroundColor: darkTheme.colors.surfaceVariant,
+    backgroundColor: '#252530',
+    borderRadius: 12,
   },
   tempoInput: {
     flex: 1,
     height: 40,
-    backgroundColor: darkTheme.colors.surfaceVariant,
+    backgroundColor: '#252530',
+    borderRadius: 12,
   },
   addEntryButton: {
     alignSelf: 'flex-start',
@@ -1319,26 +1340,41 @@ const styles = StyleSheet.create({
   },
   durationButtons: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 12,
+    gap: 8,
+    marginTop: 8,
     justifyContent: 'center',
     width: '100%',
   },
   durationChip: {
     flex: 1,
+    borderRadius: 16,
   },
   addButtonFlex: {
     flex: 1,
+    backgroundColor: '#6366f1',
+    borderRadius: 16,
+    height: 52,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   saveButtonFlex: {
     flex: 1,
     marginLeft: 8,
   },
   addButtonContent: {
-    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  addButtonLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#ffffff',
   },
   dialog: {
-    backgroundColor: darkTheme.colors.surface,
+    backgroundColor: '#1C1C26',
+    borderRadius: 20,
   },
   exerciseList: {
     maxHeight: 400,
@@ -1347,6 +1383,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginHorizontal: 16,
     borderWidth: 1,
+    borderRadius: 16,
   },
   exerciseButtonContent: {
     justifyContent: 'flex-start',
@@ -1355,22 +1392,23 @@ const styles = StyleSheet.create({
   addCustomButton: {
     marginTop: 8,
     marginHorizontal: 16,
-    backgroundColor: darkTheme.colors.primary,
+    backgroundColor: '#6366f1',
+    borderRadius: 16,
   },
   customExerciseNativeInput: {
-    backgroundColor: darkTheme.colors.surfaceVariant,
-    color: darkTheme.colors.onSurface,
+    backgroundColor: '#252530',
+    color: '#F0F0F5',
     borderWidth: 1,
-    borderColor: darkTheme.colors.outline,
-    borderRadius: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
+    borderColor: '#2A2A36',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 15,
     marginBottom: 16,
   },
   customExerciseLabel: {
-    color: darkTheme.colors.onSurface,
-    fontSize: 14,
+    color: '#F0F0F5',
+    fontSize: 13,
     marginTop: 8,
     marginBottom: 8,
   },
@@ -1385,11 +1423,9 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    flexDirection: 'row',
-    padding: 16,
-    paddingTop: 8,
-    gap: 8,
-    backgroundColor: darkTheme.colors.background,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    backgroundColor: '#0C0C12',
   },
   templateList: {
     maxHeight: 300,
@@ -1401,40 +1437,42 @@ const styles = StyleSheet.create({
   },
   templateButton: {
     flex: 1,
+    borderRadius: 16,
   },
   emptyTemplateText: {
-    color: darkTheme.colors.onSurfaceVariant,
+    color: '#6B7280',
     textAlign: 'center',
-    paddingVertical: 20,
+    paddingVertical: 24,
+    fontSize: 13,
   },
   textInput: {
-    backgroundColor: darkTheme.colors.surfaceVariant,
-    color: darkTheme.colors.onSurface,
+    backgroundColor: '#252530',
+    color: '#F0F0F5',
     borderWidth: 1,
-    borderColor: darkTheme.colors.outline,
-    borderRadius: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
+    borderColor: '#2A2A36',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 15,
   },
   swipeDeleteAction: {
-    backgroundColor: '#64748b',
+    backgroundColor: '#ef4444',
     justifyContent: 'center',
     alignItems: 'center',
     width: 64,
     marginBottom: 8,
-    borderRadius: 8,
+    borderRadius: 16,
   },
   hiddenExercisesSection: {
     marginTop: 8,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: darkTheme.colors.outline,
+    borderTopColor: '#2A2A36',
   },
   hiddenExercisesLabel: {
-    fontSize: 12,
-    color: darkTheme.colors.onSurfaceVariant,
-    marginBottom: 6,
+    fontSize: 11,
+    color: '#6B7280',
+    marginBottom: 8,
   },
   hiddenExerciseButton: {
     marginBottom: 8,
@@ -1457,32 +1495,32 @@ const styles = StyleSheet.create({
   },
   templateExerciseName: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '500',
   },
   addExerciseButton: {
     marginTop: 8,
   },
   addExerciseSection: {
-    marginTop: 12,
-    paddingTop: 12,
+    marginTop: 16,
+    paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: darkTheme.colors.outline,
+    borderTopColor: '#2A2A36',
   },
   addExerciseSectionLabel: {
-    fontSize: 12,
-    color: darkTheme.colors.onSurfaceVariant,
+    fontSize: 11,
+    color: '#6B7280',
     marginBottom: 8,
   },
   templateEditList: {
     maxHeight: 450,
   },
   templateExerciseCard: {
-    backgroundColor: darkTheme.colors.surfaceVariant,
-    borderRadius: 8,
+    backgroundColor: '#252530',
+    borderRadius: 16,
     borderLeftWidth: 3,
     padding: 8,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   templateSetRow: {
     flexDirection: 'row',
@@ -1491,8 +1529,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   templateSetLabel: {
-    color: darkTheme.colors.onSurfaceVariant,
-    fontSize: 12,
+    color: '#6B7280',
+    fontSize: 11,
     width: 24,
     fontWeight: '500',
   },
@@ -1504,16 +1542,49 @@ const styles = StyleSheet.create({
   templateInput: {
     flex: 1,
     height: 36,
-    backgroundColor: darkTheme.colors.surface,
+    backgroundColor: '#1C1C26',
     fontSize: 13,
   },
   templateAddSetButton: {
     alignSelf: 'flex-start',
   },
+  templateAddEntryButton: {
+    alignSelf: 'flex-start',
+  },
+  templateEntryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  timerButtonWithLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#6366f1',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  timerButtonRunning: {
+    backgroundColor: '#4B5563',
+  },
+  timerButtonLabel: {
+    fontSize: 13,
+    color: '#ffffff',
+    fontWeight: '600',
+  },
+  timerTextButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  timerTextButtonLabel: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
   templateSetBlock: {
     marginBottom: 6,
     borderBottomWidth: 1,
-    borderBottomColor: darkTheme.colors.outline,
+    borderBottomColor: '#2A2A36',
     paddingBottom: 6,
   },
   templateSetHeader: {
@@ -1527,7 +1598,7 @@ const styles = StyleSheet.create({
   },
   templateEntryLabel: {
     fontSize: 11,
-    color: darkTheme.colors.onSurfaceVariant,
+    color: '#6B7280',
     marginBottom: 2,
   },
   templateDetailRow: {
@@ -1539,31 +1610,41 @@ const styles = StyleSheet.create({
   templateDetailInput: {
     flex: 1,
     height: 36,
-    backgroundColor: darkTheme.colors.surface,
+    backgroundColor: '#1C1C26',
     fontSize: 13,
+  },
+  saveNewSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#2A2A36',
+  },
+  saveNewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   overwriteSection: {
     marginTop: 16,
-    paddingTop: 12,
+    paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: darkTheme.colors.outline,
+    borderTopColor: '#2A2A36',
   },
   overwriteLabel: {
-    fontSize: 12,
-    color: darkTheme.colors.onSurfaceVariant,
+    fontSize: 11,
+    color: '#6B7280',
     marginBottom: 8,
   },
   overwriteButton: {
-    marginBottom: 6,
+    marginBottom: 8,
   },
   editingBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#2a1f0e',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginBottom: 12,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginBottom: 16,
     gap: 8,
   },
   editingBannerText: {

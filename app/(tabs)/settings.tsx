@@ -1,12 +1,46 @@
 import React, { useState, useMemo } from 'react';
-import { View, ScrollView, StyleSheet, Alert } from 'react-native';
-import { Text, Card, Button, List, Divider, Portal, Dialog, RadioButton } from 'react-native-paper';
+import { View, ScrollView, StyleSheet, Alert, Pressable } from 'react-native';
+import { Text, Button, List, Portal, Dialog, RadioButton } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Calendar } from 'react-native-calendars';
 import { useWorkoutStore } from '@/stores/workoutStore';
 import { darkTheme } from '@/constants/theme';
 import { exportToJson, filterWorkoutsByDateRange } from '@/utils/export';
 import { isDurationBasedExercise } from '@/types/workout';
+
+// --- StatBlock component ---
+const StatBlock = ({ value, label, compact }: { value: string; label: string; compact?: boolean }) => (
+  <View style={[statStyles.block, compact && statStyles.blockCompact]}>
+    <Text style={[statStyles.value, compact && statStyles.valueCompact]}>{value}</Text>
+    <Text style={statStyles.label}>{label}</Text>
+  </View>
+);
+
+const statStyles = StyleSheet.create({
+  block: {
+    alignItems: 'center',
+    minWidth: '45%',
+  },
+  blockCompact: {
+    minWidth: '22%',
+  },
+  value: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#F0F0F5',
+    letterSpacing: -0.5,
+  },
+  valueCompact: {
+    fontSize: 22,
+  },
+  label: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+});
 
 export default function SettingsScreen() {
   const { getAllWorkouts } = useWorkoutStore();
@@ -77,8 +111,8 @@ export default function SettingsScreen() {
   const formatDurationHM = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
-    if (hours > 0) return `${hours}時間${mins}分`;
-    return `${mins}分`;
+    if (hours > 0) return `${hours}h ${mins}m`;
+    return `${mins}m`;
   };
 
   const calcStats = (targetWorkouts: typeof workouts) => {
@@ -116,119 +150,100 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.scrollView}>
-        <Card style={styles.statsCard}>
-          <Card.Content>
-            <Text style={styles.sectionTitle}>今年の累計（{new Date().getFullYear()}年）</Text>
-            <View style={styles.statsGrid}>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{yearlyStats.trainingDays}</Text>
-                <Text style={styles.statLabel}>トレーニング日数</Text>
-              </View>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{yearlyStats.totalSets}</Text>
-                <Text style={styles.statLabel}>総セット数</Text>
-              </View>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{formatDurationHM(yearlyStats.totalDurationSeconds)}</Text>
-                <Text style={styles.statLabel}>筋トレ時間</Text>
-              </View>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{formatDurationHM(yearlyStats.totalExerciseDurationMinutes * 60)}</Text>
-                <Text style={styles.statLabel}>有酸素・スタジオ</Text>
-              </View>
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+
+        {/* --- 今年の統計 --- */}
+        <Text style={styles.sectionHeader}>今年の実績</Text>
+        <View style={styles.card}>
+          <View style={styles.statsRow}>
+            <StatBlock value={String(yearlyStats.trainingDays)} label="日数" />
+            <View style={styles.statDivider} />
+            <StatBlock value={String(yearlyStats.totalSets)} label="セット" />
+          </View>
+          <View style={styles.statsRowSecondary}>
+            <View style={styles.statChip}>
+              <MaterialCommunityIcons name="dumbbell" size={14} color="#6366f1" />
+              <Text style={styles.statChipText}>{formatDurationHM(yearlyStats.totalDurationSeconds)}</Text>
+              <Text style={styles.statChipLabel}>筋トレ</Text>
             </View>
-
-            <Text style={[styles.sectionTitle, { marginTop: 16, marginBottom: 16 }]}>今月の累計</Text>
-            <View style={styles.statsGrid}>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{monthlyStats.trainingDays}</Text>
-                <Text style={styles.statLabel}>トレーニング日数</Text>
-              </View>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{monthlyStats.totalSets}</Text>
-                <Text style={styles.statLabel}>総セット数</Text>
-              </View>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{formatDurationHM(monthlyStats.totalDurationSeconds)}</Text>
-                <Text style={styles.statLabel}>筋トレ時間</Text>
-              </View>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{formatDurationHM(monthlyStats.totalExerciseDurationMinutes * 60)}</Text>
-                <Text style={styles.statLabel}>有酸素・スタジオ</Text>
-              </View>
+            <View style={styles.statChip}>
+              <MaterialCommunityIcons name="run" size={14} color="#6366f1" />
+              <Text style={styles.statChipText}>{formatDurationHM(yearlyStats.totalExerciseDurationMinutes * 60)}</Text>
+              <Text style={styles.statChipLabel}>有酸素</Text>
             </View>
-          </Card.Content>
-        </Card>
+          </View>
+        </View>
 
-        <Card style={styles.card}>
-          <Card.Content>
-            <Text style={styles.sectionTitle}>データ管理</Text>
-          </Card.Content>
-          <List.Item
-            title="JSONエクスポート"
-            description="AI分析用にデータをエクスポート"
-            left={(props) => (
-              <List.Icon {...props} icon="export" color={darkTheme.colors.primary} />
-            )}
-            right={(props) => <List.Icon {...props} icon="chevron-right" />}
-            onPress={() => setExportDialogVisible(true)}
-            titleStyle={styles.listTitle}
-            descriptionStyle={styles.listDescription}
-          />
-          <Divider style={styles.divider} />
-          <List.Item
-            title="エクスポート形式"
-            description="JSON (AI分析に最適化)"
-            left={(props) => (
-              <List.Icon {...props} icon="code-json" color={darkTheme.colors.secondary} />
-            )}
-            titleStyle={styles.listTitle}
-            descriptionStyle={styles.listDescription}
-          />
-        </Card>
-
-        <Card style={styles.card}>
-          <Card.Content>
-            <Text style={styles.sectionTitle}>アプリ情報</Text>
-          </Card.Content>
-          <List.Item
-            title="バージョン"
-            description="1.0.0"
-            left={(props) => (
-              <List.Icon {...props} icon="information-outline" color={darkTheme.colors.onSurfaceVariant} />
-            )}
-            titleStyle={styles.listTitle}
-            descriptionStyle={styles.listDescription}
-          />
-          <Divider style={styles.divider} />
-          <List.Item
-            title="開発"
-            description="Claude Code + Expo"
-            left={(props) => (
-              <List.Icon {...props} icon="code-tags" color={darkTheme.colors.onSurfaceVariant} />
-            )}
-            titleStyle={styles.listTitle}
-            descriptionStyle={styles.listDescription}
-          />
-        </Card>
-
-        <Card style={styles.tipCard}>
-          <Card.Content style={styles.tipContent}>
-            <MaterialCommunityIcons
-              name="lightbulb-outline"
-              size={24}
-              color={darkTheme.colors.secondary}
-            />
-            <View style={styles.tipTextContainer}>
-              <Text style={styles.tipTitle}>AI分析のヒント</Text>
-              <Text style={styles.tipText}>
-                エクスポートしたJSONファイルをClaude等のAIに読み込ませることで、
-                トレーニングの傾向分析やアドバイスを受けることができます。
-              </Text>
+        {/* --- 今月の統計 --- */}
+        <Text style={styles.sectionHeader}>今月の実績</Text>
+        <View style={styles.card}>
+          <View style={styles.statsRow}>
+            <StatBlock value={String(monthlyStats.trainingDays)} label="日数" />
+            <View style={styles.statDivider} />
+            <StatBlock value={String(monthlyStats.totalSets)} label="セット" />
+          </View>
+          <View style={styles.statsRowSecondary}>
+            <View style={styles.statChip}>
+              <MaterialCommunityIcons name="dumbbell" size={14} color="#6366f1" />
+              <Text style={styles.statChipText}>{formatDurationHM(monthlyStats.totalDurationSeconds)}</Text>
+              <Text style={styles.statChipLabel}>筋トレ</Text>
             </View>
-          </Card.Content>
-        </Card>
+            <View style={styles.statChip}>
+              <MaterialCommunityIcons name="run" size={14} color="#6366f1" />
+              <Text style={styles.statChipText}>{formatDurationHM(monthlyStats.totalExerciseDurationMinutes * 60)}</Text>
+              <Text style={styles.statChipLabel}>有酸素</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* --- データ --- */}
+        <Text style={styles.sectionHeader}>データ</Text>
+        <View style={styles.card}>
+          <Pressable style={styles.listRow} onPress={() => setExportDialogVisible(true)}>
+            <View style={styles.listIconWrap}>
+              <MaterialCommunityIcons name="export" size={18} color="#6366f1" />
+            </View>
+            <View style={styles.listTextWrap}>
+              <Text style={styles.listTitle}>JSONエクスポート</Text>
+              <Text style={styles.listDesc}>AI分析用にデータを出力</Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={20} color="#4B5563" />
+          </Pressable>
+        </View>
+
+        {/* --- アプリ情報 --- */}
+        <Text style={styles.sectionHeader}>アプリ</Text>
+        <View style={styles.card}>
+          <View style={styles.listRow}>
+            <View style={styles.listIconWrap}>
+              <MaterialCommunityIcons name="information-outline" size={18} color="#6B7280" />
+            </View>
+            <View style={styles.listTextWrap}>
+              <Text style={styles.listTitle}>バージョン</Text>
+              <Text style={styles.listDesc}>1.0.1</Text>
+            </View>
+          </View>
+          <View style={styles.listSeparator} />
+          <View style={styles.listRow}>
+            <View style={styles.listIconWrap}>
+              <MaterialCommunityIcons name="code-tags" size={18} color="#6B7280" />
+            </View>
+            <View style={styles.listTextWrap}>
+              <Text style={styles.listTitle}>開発</Text>
+              <Text style={styles.listDesc}>Claude Code + Expo</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* --- ヒント --- */}
+        <View style={styles.tipCard}>
+          <MaterialCommunityIcons name="lightbulb-outline" size={18} color="#6366f1" />
+          <Text style={styles.tipText}>
+            エクスポートしたJSONをClaude等のAIに読み込ませて、トレーニングの傾向分析やアドバイスを受けられます。
+          </Text>
+        </View>
+
+        <View style={{ height: 32 }} />
       </ScrollView>
 
       <Portal>
@@ -270,17 +285,17 @@ export default function SettingsScreen() {
                 current={selectedExportDate}
                 onDayPress={(day: { dateString: string }) => setSelectedExportDate(day.dateString)}
                 markedDates={{
-                  [selectedExportDate]: { selected: true, selectedColor: darkTheme.colors.primary },
+                  [selectedExportDate]: { selected: true, selectedColor: '#6366f1' },
                 }}
                 theme={{
-                  backgroundColor: darkTheme.colors.surface,
-                  calendarBackground: darkTheme.colors.surface,
-                  textSectionTitleColor: darkTheme.colors.onSurfaceVariant,
-                  dayTextColor: darkTheme.colors.onSurface,
-                  todayTextColor: darkTheme.colors.primary,
-                  monthTextColor: darkTheme.colors.onSurface,
-                  arrowColor: darkTheme.colors.primary,
-                  textDisabledColor: '#555',
+                  backgroundColor: '#1C1C26',
+                  calendarBackground: '#1C1C26',
+                  textSectionTitleColor: '#6B7280',
+                  dayTextColor: '#F0F0F5',
+                  todayTextColor: '#6366f1',
+                  monthTextColor: '#F0F0F5',
+                  arrowColor: '#6366f1',
+                  textDisabledColor: '#4B5563',
                 }}
                 style={styles.exportCalendar}
               />
@@ -306,93 +321,135 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: darkTheme.colors.background,
+    backgroundColor: '#0C0C12',
   },
   scrollView: {
     flex: 1,
-    padding: 16,
+    paddingHorizontal: 16,
   },
-  statsCard: {
-    backgroundColor: darkTheme.colors.surfaceVariant,
-    marginBottom: 16,
+  sectionHeader: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6B7280',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginTop: 24,
+    marginBottom: 8,
+    marginLeft: 4,
   },
   card: {
-    backgroundColor: darkTheme.colors.surface,
-    marginBottom: 16,
+    backgroundColor: '#1C1C26',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#2A2A36',
+    padding: 16,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: darkTheme.colors.onSurface,
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  statsGrid: {
+  statsRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    flexWrap: 'wrap',
-    rowGap: 20,
-    columnGap: 24,
-  },
-  statItem: {
     alignItems: 'center',
-    minWidth: '40%',
+    gap: 32,
+    paddingVertical: 8,
   },
-  statValue: {
-    fontSize: 28,
-    fontWeight: '600',
-    color: darkTheme.colors.primary,
+  statDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: '#2A2A36',
   },
-  statLabel: {
-    fontSize: 12,
-    color: darkTheme.colors.onSurfaceVariant,
-    marginTop: 4,
-  },
-  listTitle: {
-    color: darkTheme.colors.onSurface,
-  },
-  listDescription: {
-    color: darkTheme.colors.onSurfaceVariant,
-  },
-  divider: {
-    backgroundColor: darkTheme.colors.outline,
-  },
-  tipCard: {
-    backgroundColor: darkTheme.colors.surface,
-    borderLeftWidth: 4,
-    borderLeftColor: darkTheme.colors.secondary,
-  },
-  tipContent: {
+  statsRowSecondary: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    justifyContent: 'center',
+    gap: 16,
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#2A2A36',
+  },
+  statChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#252530',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    gap: 6,
+  },
+  statChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#F0F0F5',
+  },
+  statChipLabel: {
+    fontSize: 11,
+    color: '#6B7280',
+  },
+  listRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
     gap: 12,
   },
-  tipTextContainer: {
+  listIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#252530',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listTextWrap: {
     flex: 1,
   },
-  tipTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: darkTheme.colors.onSurface,
-    marginBottom: 4,
+  listTitle: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#F0F0F5',
+  },
+  listDesc: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  listSeparator: {
+    height: 1,
+    backgroundColor: '#2A2A36',
+    marginLeft: 44,
+  },
+  tipCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#1C1C26',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#2A2A36',
+    padding: 16,
+    marginTop: 16,
+    gap: 12,
   },
   tipText: {
+    flex: 1,
     fontSize: 13,
-    color: darkTheme.colors.onSurfaceVariant,
+    color: '#6B7280',
     lineHeight: 20,
   },
   dialog: {
-    backgroundColor: darkTheme.colors.surface,
+    backgroundColor: '#1C1C26',
   },
   dialogText: {
-    color: darkTheme.colors.onSurfaceVariant,
+    color: '#6B7280',
     marginBottom: 8,
   },
   radioLabel: {
-    color: darkTheme.colors.onSurface,
+    color: '#F0F0F5',
   },
   exportCalendar: {
-    borderRadius: 8,
+    borderRadius: 16,
     marginTop: 8,
   },
 });

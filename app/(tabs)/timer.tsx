@@ -430,15 +430,17 @@ export default function TimerScreen() {
               {metronomeLink && !isRunning && (
                 <Text style={styles.metronomeLinkHint}>🎵 残り10秒でメトロノーム開始</Text>
               )}
-              <IconButton
-                icon="bookmark-outline"
-                mode="contained-tonal"
-                iconColor="#94a3b8"
-                containerColor="#334155"
-                onPress={recordIntervalTime}
-                style={styles.recordButton}
-                size={20}
-              />
+              <View style={styles.recordButtonWithLabel}>
+                <IconButton
+                  icon="bookmark-outline"
+                  mode="contained-tonal"
+                  iconColor="#94a3b8"
+                  containerColor="#334155"
+                  onPress={recordIntervalTime}
+                  size={20}
+                />
+                <Text style={styles.recordButtonLabel}>記録</Text>
+              </View>
             </View>
           </Card>
         ) : (
@@ -467,15 +469,17 @@ export default function TimerScreen() {
                       />
                     ))}
                   </View>
-                  <IconButton
-                    icon="bookmark-outline"
-                    mode="contained-tonal"
-                    iconColor="#94a3b8"
-                    containerColor="#334155"
-                    onPress={recordMetronome}
-                    style={styles.recordButton}
-                    size={20}
-                  />
+                  <View style={styles.recordButtonWithLabel}>
+                    <IconButton
+                      icon="bookmark-outline"
+                      mode="contained-tonal"
+                      iconColor="#94a3b8"
+                      containerColor="#334155"
+                      onPress={recordMetronome}
+                      size={20}
+                    />
+                    <Text style={styles.recordButtonLabel}>記録</Text>
+                  </View>
                 </>
               )}
             </View>
@@ -790,6 +794,15 @@ const styles = StyleSheet.create({
   },
   recordButton: {
     marginTop: 12,
+  },
+  recordButtonWithLabel: {
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  recordButtonLabel: {
+    fontSize: 10,
+    color: '#94a3b8',
+    marginTop: -4,
   },
   metronomeLinkHint: {
     fontSize: 12,
