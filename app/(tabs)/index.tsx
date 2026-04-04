@@ -661,42 +661,45 @@ const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) 
                   </View>
                   {exercise.sets.map((set, setIndex) => (
                     <View key={setIndex} style={styles.templateSetBlock}>
+                      <View style={styles.templateSetHeader}>
+                        <Text style={styles.templateSetLabel}>セット {setIndex + 1}</Text>
+                        <IconButton
+                          icon="close"
+                          size={16}
+                          iconColor={darkTheme.colors.onSurfaceVariant}
+                          onPress={() => removeTemplateSet(editingId, exercise.id, setIndex)}
+                        />
+                      </View>
                       {set.entries.map((entry, entryIndex) => (
-                        <View key={entryIndex}>
-                          <View style={styles.templateSetRow}>
-                            <Text style={styles.templateSetLabel}>S{setIndex + 1}</Text>
-                            <View style={styles.templateEntryRow}>
-                              <TextInput
-                                mode="outlined"
-                                label="回数"
-                                value={entry.reps > 0 ? entry.reps.toString() : ''}
-                                onChangeText={(text) => updateTemplateEntryReps(editingId, exercise.id, setIndex, entryIndex, parseInt(text, 10) || 0)}
-                                keyboardType="number-pad"
-                                style={styles.templateInput}
-                                outlineColor={darkTheme.colors.outline}
-                                activeOutlineColor={color}
-                                dense
-                              />
-                              <TextInput
-                                mode="outlined"
-                                label="kg"
-                                value={entry.weight ? entry.weight.toString() : ''}
-                                onChangeText={(text) => {
-                                  const w = parseFloat(text);
-                                  updateTemplateEntryWeight(editingId, exercise.id, setIndex, entryIndex, Number.isFinite(w) ? w : 0);
-                                }}
-                                keyboardType="decimal-pad"
-                                style={styles.templateInput}
-                                outlineColor={darkTheme.colors.outline}
-                                activeOutlineColor={color}
-                                dense
-                              />
-                            </View>
-                            <IconButton
-                              icon="close"
-                              size={16}
-                              iconColor={darkTheme.colors.onSurfaceVariant}
-                              onPress={() => removeTemplateSet(editingId, exercise.id, setIndex)}
+                        <View key={entryIndex} style={styles.templateEntryBlock}>
+                          {set.entries.length > 1 ? (
+                            <Text style={styles.templateEntryLabel}>種目 {entryIndex + 1}</Text>
+                          ) : null}
+                          <View style={styles.templateEntryRow}>
+                            <TextInput
+                              mode="outlined"
+                              label="回数"
+                              value={entry.reps > 0 ? entry.reps.toString() : ''}
+                              onChangeText={(text) => updateTemplateEntryReps(editingId, exercise.id, setIndex, entryIndex, parseInt(text, 10) || 0)}
+                              keyboardType="number-pad"
+                              style={styles.templateInput}
+                              outlineColor={darkTheme.colors.outline}
+                              activeOutlineColor={color}
+                              dense
+                            />
+                            <TextInput
+                              mode="outlined"
+                              label="kg"
+                              value={entry.weight ? entry.weight.toString() : ''}
+                              onChangeText={(text) => {
+                                const w = parseFloat(text);
+                                updateTemplateEntryWeight(editingId, exercise.id, setIndex, entryIndex, Number.isFinite(w) ? w : 0);
+                              }}
+                              keyboardType="decimal-pad"
+                              style={styles.templateInput}
+                              outlineColor={darkTheme.colors.outline}
+                              activeOutlineColor={color}
+                              dense
                             />
                           </View>
                           <View style={styles.templateDetailRow}>
@@ -1512,6 +1515,20 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: darkTheme.colors.outline,
     paddingBottom: 6,
+  },
+  templateSetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  templateEntryBlock: {
+    marginLeft: 4,
+    marginBottom: 4,
+  },
+  templateEntryLabel: {
+    fontSize: 11,
+    color: darkTheme.colors.onSurfaceVariant,
+    marginBottom: 2,
   },
   templateDetailRow: {
     flexDirection: 'row',
