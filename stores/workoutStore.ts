@@ -61,6 +61,10 @@ interface WorkoutState {
   saveTemplate: (name: string) => void;
   getTemplates: () => WorkoutTemplate[];
   deleteTemplate: (id: string) => void;
+  updateTemplate: (id: string) => void;
+  renameTemplate: (id: string, name: string) => void;
+  addExerciseToTemplate: (templateId: string, exerciseType: ExerciseType) => void;
+  removeExerciseFromTemplate: (templateId: string, exerciseId: string) => void;
   applyTemplate: (id: string) => void;
   hideBuiltinExercise: (type: string) => void;
   showBuiltinExercise: (type: string) => void;
@@ -656,6 +660,76 @@ export const useWorkoutStore = create<WorkoutState>()(
       deleteTemplate: (id: string) => {
         set((state) => ({
           templates: state.templates.filter((t) => t.id !== id),
+        }));
+      },
+
+      updateTemplate: (id: string) => {
+        const { selectedDate, workouts } = get();
+        const workout = workouts.find((w) => w.date === selectedDate);
+
+        if (!workout || workout.exercises.length === 0) {
+          return;
+        }
+
+        set((state) => ({
+          templates: state.templates.map((t) =>
+            t.id === id
+              ? {
+                  ...t,
+                  exercises: workout.exercises.map((exercise) => ({
+                    ...exercise,
+                    id: generateId(),
+                    createdAt: new Date().toISOString(),
+                    sets: exercise.sets.map((set) => ({
+                      ...set,
+                      completed: false,
+                    })),
+                  })),
+                }
+              : t
+          ),
+        }));
+      },
+
+      renameTemplate: (id: string, name: string) => {
+        set((state) => ({
+          templates: state.templates.map((t) =>
+            t.id === id ? { ...t, name } : t
+          ),
+        }));
+      },
+
+      addExerciseToTemplate: (templateId: string, exerciseType: ExerciseType) => {
+        const customExercise = get().customExercises.find((e) => e.id === exerciseType);
+        const exerciseName = EXERCISE_NAMES[exerciseType] || customExercise?.name || exerciseType;
+        const isDuration = customExercise?.isDuration || isDurationBasedExercise(exerciseType);
+
+        const newExercise: Exercise = {
+          id: generateId(),
+          type: exerciseType,
+          name: exerciseName,
+          sets: isDuration ? [] : [{ entries: [createEmptyEntry()], completed: false }],
+          duration: isDuration ? 0 : undefined,
+          durationMinutes: undefined,
+          createdAt: new Date().toISOString(),
+        };
+
+        set((state) => ({
+          templates: state.templates.map((t) =>
+            t.id === templateId
+              ? { ...t, exercises: [...t.exercises, newExercise] }
+              : t
+          ),
+        }));
+      },
+
+      removeExerciseFromTemplate: (templateId: string, exerciseId: string) => {
+        set((state) => ({
+          templates: state.templates.map((t) =>
+            t.id === templateId
+              ? { ...t, exercises: t.exercises.filter((e) => e.id !== exerciseId) }
+              : t
+          ),
         }));
       },
 

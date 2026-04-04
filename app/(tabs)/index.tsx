@@ -573,22 +573,154 @@ const CustomExerciseDialog = memo<CustomExerciseDialogProps>(({ visible, onDismi
 interface TemplateDialogProps {
   visible: boolean;
   onDismiss: () => void;
+  onStartEditing?: (info: { id: string; name: string }) => void;
 }
 
-const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) => {
-  const getTemplates = useWorkoutStore((s) => s.getTemplates);
+const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss, onStartEditing }) => {
+  const templates = useWorkoutStore((s) => s.templates);
+  const customExercises = useWorkoutStore((s) => s.customExercises);
   const applyTemplate = useWorkoutStore((s) => s.applyTemplate);
   const deleteTemplate = useWorkoutStore((s) => s.deleteTemplate);
+  const renameTemplate = useWorkoutStore((s) => s.renameTemplate);
+  const addExerciseToTemplate = useWorkoutStore((s) => s.addExerciseToTemplate);
+  const removeExerciseFromTemplate = useWorkoutStore((s) => s.removeExerciseFromTemplate);
+  const hiddenBuiltinExercises = useWorkoutStore((s) => s.hiddenBuiltinExercises);
 
-  const templates = getTemplates();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [renameId, setRenameId] = useState<string | null>(null);
+  const [showAddExercise, setShowAddExercise] = useState(false);
+  const renameRef = useRef('');
+
+  const allBuiltinTypes: BuiltinExerciseType[] = ['pushup', 'squat', 'pullup', 'bodypump', 'bodycombat', 'leapfight'];
+  const availableTypes = useMemo(
+    () => allBuiltinTypes.filter((t) => !hiddenBuiltinExercises.includes(t)),
+    [hiddenBuiltinExercises]
+  );
+
+  const editingTemplate = useMemo(
+    () => templates.find((t) => t.id === editingId),
+    [templates, editingId]
+  );
 
   const handleApply = useCallback((id: string) => {
+    const template = templates.find((t) => t.id === id);
     applyTemplate(id);
+    if (onStartEditing && template) {
+      onStartEditing({ id, name: template.name });
+    }
     onDismiss();
-  }, [applyTemplate, onDismiss]);
+  }, [applyTemplate, onDismiss, templates, onStartEditing]);
 
+  const handleStartRename = useCallback((id: string, currentName: string) => {
+    renameRef.current = currentName;
+    setRenameId(id);
+  }, []);
+
+  const handleConfirmRename = useCallback(() => {
+    if (renameId && renameRef.current.trim()) {
+      renameTemplate(renameId, renameRef.current.trim());
+    }
+    setRenameId(null);
+  }, [renameId, renameTemplate]);
+
+  const handleBack = useCallback(() => {
+    setEditingId(null);
+    setShowAddExercise(false);
+  }, []);
+
+  const handleDismiss = useCallback(() => {
+    setEditingId(null);
+    setShowAddExercise(false);
+    setRenameId(null);
+    onDismiss();
+  }, [onDismiss]);
+
+  // 編集モード
+  if (editingId && editingTemplate) {
+    return (
+      <Dialog visible={visible} onDismiss={handleDismiss} style={styles.dialog}>
+        <Dialog.Title>「{editingTemplate.name}」を編集</Dialog.Title>
+        <Dialog.Content>
+          <ScrollView style={styles.templateList}>
+            {editingTemplate.exercises.map((exercise) => {
+              const color = getExerciseColor(exercise.type, customExercises);
+              const icon = getExerciseIcon(exercise.type, customExercises);
+              return (
+                <View key={exercise.id} style={styles.templateEditItem}>
+                  <MaterialCommunityIcons name={icon as any} size={20} color={color} />
+                  <Text style={[styles.templateExerciseName, { color }]}>{exercise.name}</Text>
+                  <IconButton
+                    icon="close-circle-outline"
+                    size={20}
+                    iconColor={darkTheme.colors.error}
+                    onPress={() => removeExerciseFromTemplate(editingId, exercise.id)}
+                  />
+                </View>
+              );
+            })}
+            {editingTemplate.exercises.length === 0 ? (
+              <Text style={styles.emptyTemplateText}>種目がありません</Text>
+            ) : null}
+
+            {showAddExercise ? (
+              <View style={styles.addExerciseSection}>
+                <Text style={styles.addExerciseSectionLabel}>種目を追加</Text>
+                {availableTypes.map((type) => {
+                  const color = getExerciseColor(type, customExercises);
+                  const icon = getExerciseIcon(type, customExercises);
+                  return (
+                    <Button
+                      key={type}
+                      mode="outlined"
+                      onPress={() => { addExerciseToTemplate(editingId, type); setShowAddExercise(false); }}
+                      style={[styles.exerciseButton, { borderColor: color }]}
+                      labelStyle={{ color }}
+                      icon={() => <MaterialCommunityIcons name={icon as any} size={18} color={color} />}
+                      contentStyle={styles.exerciseButtonContent}
+                      compact
+                    >
+                      {BUILTIN_EXERCISE_NAMES[type]}
+                    </Button>
+                  );
+                })}
+                {customExercises.map((custom) => (
+                  <Button
+                    key={custom.id}
+                    mode="outlined"
+                    onPress={() => { addExerciseToTemplate(editingId, custom.id); setShowAddExercise(false); }}
+                    style={[styles.exerciseButton, { borderColor: custom.color }]}
+                    labelStyle={{ color: custom.color }}
+                    icon={() => <MaterialCommunityIcons name={custom.icon as any} size={18} color={custom.color} />}
+                    contentStyle={styles.exerciseButtonContent}
+                    compact
+                  >
+                    {custom.name}
+                  </Button>
+                ))}
+              </View>
+            ) : (
+              <Button
+                mode="text"
+                icon="plus"
+                onPress={() => setShowAddExercise(true)}
+                textColor={darkTheme.colors.primary}
+                style={styles.addExerciseButton}
+              >
+                種目を追加
+              </Button>
+            )}
+          </ScrollView>
+        </Dialog.Content>
+        <Dialog.Actions>
+          <Button onPress={handleBack}>戻る</Button>
+        </Dialog.Actions>
+      </Dialog>
+    );
+  }
+
+  // 一覧モード
   return (
-    <Dialog visible={visible} onDismiss={onDismiss} style={styles.dialog}>
+    <Dialog visible={visible} onDismiss={handleDismiss} style={styles.dialog}>
       <Dialog.Title>テンプレートを選択</Dialog.Title>
       <Dialog.Content>
         {templates.length === 0 ? (
@@ -597,34 +729,59 @@ const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) 
           <ScrollView style={styles.templateList}>
             {templates.map((template) => (
               <View key={template.id} style={styles.templateItem}>
-                <Button
-                  mode="outlined"
-                  onPress={() => handleApply(template.id)}
-                  style={styles.templateButton}
-                >
-                  {template.name}
-                </Button>
-                <IconButton
-                  icon="delete"
-                  size={20}
-                  onPress={() => {
-                    Alert.alert(
-                      'テンプレートの削除',
-                      `「${template.name}」を削除しますか？`,
-                      [
-                        { text: 'キャンセル', style: 'cancel' },
-                        { text: '削除', style: 'destructive', onPress: () => deleteTemplate(template.id) },
-                      ]
-                    );
-                  }}
-                />
+                {renameId === template.id ? (
+                  <View style={styles.renameRow}>
+                    <RNTextInput
+                      defaultValue={template.name}
+                      onChangeText={(text) => { renameRef.current = text; }}
+                      style={[styles.textInput, styles.renameInput]}
+                      autoFocus
+                      onSubmitEditing={handleConfirmRename}
+                    />
+                    <IconButton icon="check" size={20} onPress={handleConfirmRename} />
+                  </View>
+                ) : (
+                  <>
+                    <Button
+                      mode="outlined"
+                      onPress={() => handleApply(template.id)}
+                      style={styles.templateButton}
+                    >
+                      {template.name}
+                    </Button>
+                    <IconButton
+                      icon="pencil"
+                      size={20}
+                      onPress={() => handleStartRename(template.id, template.name)}
+                    />
+                    <IconButton
+                      icon="playlist-edit"
+                      size={20}
+                      onPress={() => setEditingId(template.id)}
+                    />
+                    <IconButton
+                      icon="delete"
+                      size={20}
+                      onPress={() => {
+                        Alert.alert(
+                          'テンプレートの削除',
+                          `「${template.name}」を削除しますか？`,
+                          [
+                            { text: 'キャンセル', style: 'cancel' },
+                            { text: '削除', style: 'destructive', onPress: () => deleteTemplate(template.id) },
+                          ]
+                        );
+                      }}
+                    />
+                  </>
+                )}
               </View>
             ))}
           </ScrollView>
         )}
       </Dialog.Content>
       <Dialog.Actions>
-        <Button onPress={onDismiss}>閉じる</Button>
+        <Button onPress={handleDismiss}>閉じる</Button>
       </Dialog.Actions>
     </Dialog>
   );
@@ -633,6 +790,8 @@ const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) 
 // --- SaveTemplateDialog コンポーネント ---
 const SaveTemplateDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) => {
   const saveTemplate = useWorkoutStore((s) => s.saveTemplate);
+  const updateTemplate = useWorkoutStore((s) => s.updateTemplate);
+  const templates = useWorkoutStore((s) => s.templates);
   const templateNameRef = useRef('');
   const [templateNameEmpty, setTemplateNameEmpty] = useState(true);
 
@@ -652,6 +811,17 @@ const SaveTemplateDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) =>
     }
   }, [saveTemplate, onDismiss]);
 
+  const handleOverwrite = useCallback((id: string, name: string) => {
+    Alert.alert(
+      'テンプレートの上書き',
+      `「${name}」を今のメニューで上書きしますか？`,
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        { text: '上書き', onPress: () => { updateTemplate(id); onDismiss(); } },
+      ]
+    );
+  }, [updateTemplate, onDismiss]);
+
   const handleNameChange = useCallback((text: string) => {
     templateNameRef.current = text;
     const isEmpty = !text.trim();
@@ -665,13 +835,30 @@ const SaveTemplateDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) =>
         <RNTextInput
           defaultValue=""
           onChangeText={handleNameChange}
-          placeholder="テンプレート名（例: 胸の日）"
+          placeholder="新しいテンプレート名（例: 胸の日）"
           style={styles.textInput}
         />
+        {templates.length > 0 ? (
+          <View style={styles.overwriteSection}>
+            <Text style={styles.overwriteLabel}>既存テンプレートに上書き</Text>
+            {templates.map((t) => (
+              <Button
+                key={t.id}
+                mode="outlined"
+                onPress={() => handleOverwrite(t.id, t.name)}
+                style={styles.overwriteButton}
+                icon="content-save-edit"
+                compact
+              >
+                {t.name}
+              </Button>
+            ))}
+          </View>
+        ) : null}
       </Dialog.Content>
       <Dialog.Actions>
         <Button onPress={handleDismiss}>キャンセル</Button>
-        <Button onPress={handleSave} disabled={templateNameEmpty}>保存</Button>
+        <Button onPress={handleSave} disabled={templateNameEmpty}>新規保存</Button>
       </Dialog.Actions>
     </Dialog>
   );
@@ -694,6 +881,10 @@ export default function HomeScreen() {
 
   const selectedWorkout = getWorkoutByDate(selectedDate);
   const exercises = selectedWorkout?.exercises ?? EMPTY_EXERCISES;
+
+  // テンプレート編集中の状態
+  const [editingTemplateInfo, setEditingTemplateInfo] = useState<{ id: string; name: string } | null>(null);
+  const updateTemplate = useWorkoutStore((s) => s.updateTemplate);
 
   // Dialog visibility states
   const [dialogVisible, setDialogVisible] = useState(false);
@@ -737,6 +928,18 @@ export default function HomeScreen() {
   const handleCloseDatePicker = useCallback(() => setDatePickerVisible(false), []);
   const handleOpenTemplateDialog = useCallback(() => setTemplateDialogVisible(true), []);
   const handleCloseTemplateDialog = useCallback(() => setTemplateDialogVisible(false), []);
+  const handleStartEditing = useCallback((info: { id: string; name: string }) => {
+    setEditingTemplateInfo(info);
+  }, []);
+  const handleFinishEditing = useCallback(() => {
+    if (editingTemplateInfo) {
+      updateTemplate(editingTemplateInfo.id);
+      setEditingTemplateInfo(null);
+    }
+  }, [editingTemplateInfo, updateTemplate]);
+  const handleCancelEditing = useCallback(() => {
+    setEditingTemplateInfo(null);
+  }, []);
   const handleOpenSaveTemplateDialog = useCallback(() => setSaveTemplateDialogVisible(true), []);
   const handleCloseSaveTemplateDialog = useCallback(() => setSaveTemplateDialogVisible(false), []);
 
@@ -775,17 +978,24 @@ export default function HomeScreen() {
             </Button>
           </View>
         </View>
-        {exercises.length === 0 ? (
-          <Button
-            mode="outlined"
-            icon="file-document-outline"
-            onPress={handleOpenTemplateDialog}
-            style={styles.copyButton}
-            labelStyle={styles.copyButtonLabel}
-            compact
-          >
-            テンプレート
-          </Button>
+        <Button
+          mode="outlined"
+          icon="file-document-outline"
+          onPress={handleOpenTemplateDialog}
+          style={styles.copyButton}
+          labelStyle={styles.copyButtonLabel}
+          compact
+        >
+          テンプレート
+        </Button>
+        {editingTemplateInfo ? (
+          <View style={styles.editingBanner}>
+            <MaterialCommunityIcons name="playlist-edit" size={18} color="#d4a054" />
+            <Text style={styles.editingBannerText}>「{editingTemplateInfo.name}」を編集中</Text>
+            <Button mode="text" onPress={handleCancelEditing} compact textColor="#d4a054">
+              取消
+            </Button>
+          </View>
         ) : null}
         <View style={styles.workoutTimerContainer}>
           <Text style={styles.durationText}>筋トレ時間 {formatDuration(workoutDurationSeconds)}</Text>
@@ -848,15 +1058,29 @@ export default function HomeScreen() {
           種目追加
         </Button>
         {exercises.length > 0 ? (
-          <Button
-            mode="outlined"
-            icon="bookmark-plus-outline"
-            onPress={handleOpenSaveTemplateDialog}
-            style={styles.saveButtonFlex}
-            contentStyle={styles.addButtonContent}
-          >
-            メニュー保存
-          </Button>
+          editingTemplateInfo ? (
+            <Button
+              mode="contained"
+              icon="content-save-check"
+              onPress={handleFinishEditing}
+              style={styles.saveButtonFlex}
+              contentStyle={styles.addButtonContent}
+              buttonColor="#2a1f0e"
+              textColor="#d4a054"
+            >
+              テンプレ更新
+            </Button>
+          ) : (
+            <Button
+              mode="outlined"
+              icon="bookmark-plus-outline"
+              onPress={handleOpenSaveTemplateDialog}
+              style={styles.saveButtonFlex}
+              contentStyle={styles.addButtonContent}
+            >
+              メニュー保存
+            </Button>
+          )
         ) : null}
       </View>
 
@@ -887,6 +1111,7 @@ export default function HomeScreen() {
         <TemplateSelectDialog
           visible={templateDialogVisible}
           onDismiss={handleCloseTemplateDialog}
+          onStartEditing={handleStartEditing}
         />
         <SaveTemplateDialog
           visible={saveTemplateDialogVisible}
@@ -1169,5 +1394,69 @@ const styles = StyleSheet.create({
   hiddenExerciseButton: {
     marginBottom: 8,
     opacity: 0.6,
+  },
+  renameRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  renameInput: {
+    flex: 1,
+  },
+  templateEditItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    gap: 8,
+  },
+  templateExerciseName: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  addExerciseButton: {
+    marginTop: 8,
+  },
+  addExerciseSection: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: darkTheme.colors.outline,
+  },
+  addExerciseSectionLabel: {
+    fontSize: 12,
+    color: darkTheme.colors.onSurfaceVariant,
+    marginBottom: 8,
+  },
+  overwriteSection: {
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: darkTheme.colors.outline,
+  },
+  overwriteLabel: {
+    fontSize: 12,
+    color: darkTheme.colors.onSurfaceVariant,
+    marginBottom: 8,
+  },
+  overwriteButton: {
+    marginBottom: 6,
+  },
+  editingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2a1f0e',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 12,
+    gap: 8,
+  },
+  editingBannerText: {
+    flex: 1,
+    color: '#d4a054',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });
