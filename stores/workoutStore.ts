@@ -65,6 +65,12 @@ interface WorkoutState {
   renameTemplate: (id: string, name: string) => void;
   addExerciseToTemplate: (templateId: string, exerciseType: ExerciseType) => void;
   removeExerciseFromTemplate: (templateId: string, exerciseId: string) => void;
+  updateTemplateEntryReps: (templateId: string, exerciseId: string, setIndex: number, entryIndex: number, reps: number) => void;
+  updateTemplateEntryWeight: (templateId: string, exerciseId: string, setIndex: number, entryIndex: number, weight: number) => void;
+  updateTemplateEntryVariation: (templateId: string, exerciseId: string, setIndex: number, entryIndex: number, variation: string) => void;
+  updateTemplateEntryTempo: (templateId: string, exerciseId: string, setIndex: number, entryIndex: number, tempo: string) => void;
+  addTemplateSet: (templateId: string, exerciseId: string) => void;
+  removeTemplateSet: (templateId: string, exerciseId: string, setIndex: number) => void;
   applyTemplate: (id: string) => void;
   hideBuiltinExercise: (type: string) => void;
   showBuiltinExercise: (type: string) => void;
@@ -728,6 +734,136 @@ export const useWorkoutStore = create<WorkoutState>()(
           templates: state.templates.map((t) =>
             t.id === templateId
               ? { ...t, exercises: t.exercises.filter((e) => e.id !== exerciseId) }
+              : t
+          ),
+        }));
+      },
+
+      updateTemplateEntryReps: (templateId: string, exerciseId: string, setIndex: number, entryIndex: number, reps: number) => {
+        set((state) => ({
+          templates: state.templates.map((t) =>
+            t.id === templateId
+              ? {
+                  ...t,
+                  exercises: t.exercises.map((e) =>
+                    e.id === exerciseId
+                      ? {
+                          ...e,
+                          sets: e.sets.map((s, si) =>
+                            si === setIndex
+                              ? { ...s, entries: s.entries.map((en, ei) => ei === entryIndex ? { ...en, reps } : en) }
+                              : s
+                          ),
+                        }
+                      : e
+                  ),
+                }
+              : t
+          ),
+        }));
+      },
+
+      updateTemplateEntryWeight: (templateId: string, exerciseId: string, setIndex: number, entryIndex: number, weight: number) => {
+        set((state) => ({
+          templates: state.templates.map((t) =>
+            t.id === templateId
+              ? {
+                  ...t,
+                  exercises: t.exercises.map((e) =>
+                    e.id === exerciseId
+                      ? {
+                          ...e,
+                          sets: e.sets.map((s, si) =>
+                            si === setIndex
+                              ? { ...s, entries: s.entries.map((en, ei) => ei === entryIndex ? { ...en, weight } : en) }
+                              : s
+                          ),
+                        }
+                      : e
+                  ),
+                }
+              : t
+          ),
+        }));
+      },
+
+      updateTemplateEntryVariation: (templateId: string, exerciseId: string, setIndex: number, entryIndex: number, variation: string) => {
+        set((state) => ({
+          templates: state.templates.map((t) =>
+            t.id === templateId
+              ? {
+                  ...t,
+                  exercises: t.exercises.map((e) =>
+                    e.id === exerciseId
+                      ? {
+                          ...e,
+                          sets: e.sets.map((s, si) =>
+                            si === setIndex
+                              ? { ...s, entries: s.entries.map((en, ei) => ei === entryIndex ? { ...en, variation } : en) }
+                              : s
+                          ),
+                        }
+                      : e
+                  ),
+                }
+              : t
+          ),
+        }));
+      },
+
+      updateTemplateEntryTempo: (templateId: string, exerciseId: string, setIndex: number, entryIndex: number, tempo: string) => {
+        set((state) => ({
+          templates: state.templates.map((t) =>
+            t.id === templateId
+              ? {
+                  ...t,
+                  exercises: t.exercises.map((e) =>
+                    e.id === exerciseId
+                      ? {
+                          ...e,
+                          sets: e.sets.map((s, si) =>
+                            si === setIndex
+                              ? { ...s, entries: s.entries.map((en, ei) => ei === entryIndex ? { ...en, tempo } : en) }
+                              : s
+                          ),
+                        }
+                      : e
+                  ),
+                }
+              : t
+          ),
+        }));
+      },
+
+      addTemplateSet: (templateId: string, exerciseId: string) => {
+        set((state) => ({
+          templates: state.templates.map((t) =>
+            t.id === templateId
+              ? {
+                  ...t,
+                  exercises: t.exercises.map((e) =>
+                    e.id === exerciseId
+                      ? { ...e, sets: [...e.sets, { entries: [createEmptyEntry()], completed: false }] }
+                      : e
+                  ),
+                }
+              : t
+          ),
+        }));
+      },
+
+      removeTemplateSet: (templateId: string, exerciseId: string, setIndex: number) => {
+        set((state) => ({
+          templates: state.templates.map((t) =>
+            t.id === templateId
+              ? {
+                  ...t,
+                  exercises: t.exercises.map((e) =>
+                    e.id === exerciseId
+                      ? { ...e, sets: e.sets.filter((_, si) => si !== setIndex) }
+                      : e
+                  ),
+                }
               : t
           ),
         }));

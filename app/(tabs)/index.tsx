@@ -576,7 +576,7 @@ interface TemplateDialogProps {
   onStartEditing?: (info: { id: string; name: string }) => void;
 }
 
-const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss, onStartEditing }) => {
+const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss }) => {
   const templates = useWorkoutStore((s) => s.templates);
   const customExercises = useWorkoutStore((s) => s.customExercises);
   const applyTemplate = useWorkoutStore((s) => s.applyTemplate);
@@ -584,6 +584,12 @@ const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss, on
   const renameTemplate = useWorkoutStore((s) => s.renameTemplate);
   const addExerciseToTemplate = useWorkoutStore((s) => s.addExerciseToTemplate);
   const removeExerciseFromTemplate = useWorkoutStore((s) => s.removeExerciseFromTemplate);
+  const updateTemplateEntryReps = useWorkoutStore((s) => s.updateTemplateEntryReps);
+  const updateTemplateEntryWeight = useWorkoutStore((s) => s.updateTemplateEntryWeight);
+  const updateTemplateEntryVariation = useWorkoutStore((s) => s.updateTemplateEntryVariation);
+  const updateTemplateEntryTempo = useWorkoutStore((s) => s.updateTemplateEntryTempo);
+  const addTemplateSet = useWorkoutStore((s) => s.addTemplateSet);
+  const removeTemplateSet = useWorkoutStore((s) => s.removeTemplateSet);
   const hiddenBuiltinExercises = useWorkoutStore((s) => s.hiddenBuiltinExercises);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -603,13 +609,9 @@ const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss, on
   );
 
   const handleApply = useCallback((id: string) => {
-    const template = templates.find((t) => t.id === id);
     applyTemplate(id);
-    if (onStartEditing && template) {
-      onStartEditing({ id, name: template.name });
-    }
     onDismiss();
-  }, [applyTemplate, onDismiss, templates, onStartEditing]);
+  }, [applyTemplate, onDismiss]);
 
   const handleStartRename = useCallback((id: string, currentName: string) => {
     renameRef.current = currentName;
@@ -641,20 +643,100 @@ const TemplateSelectDialog = memo<TemplateDialogProps>(({ visible, onDismiss, on
       <Dialog visible={visible} onDismiss={handleDismiss} style={styles.dialog}>
         <Dialog.Title>「{editingTemplate.name}」を編集</Dialog.Title>
         <Dialog.Content>
-          <ScrollView style={styles.templateList}>
+          <ScrollView style={styles.templateEditList}>
             {editingTemplate.exercises.map((exercise) => {
               const color = getExerciseColor(exercise.type, customExercises);
               const icon = getExerciseIcon(exercise.type, customExercises);
               return (
-                <View key={exercise.id} style={styles.templateEditItem}>
-                  <MaterialCommunityIcons name={icon as any} size={20} color={color} />
-                  <Text style={[styles.templateExerciseName, { color }]}>{exercise.name}</Text>
-                  <IconButton
-                    icon="close-circle-outline"
-                    size={20}
-                    iconColor={darkTheme.colors.error}
-                    onPress={() => removeExerciseFromTemplate(editingId, exercise.id)}
-                  />
+                <View key={exercise.id} style={[styles.templateExerciseCard, { borderLeftColor: color }]}>
+                  <View style={styles.templateEditItem}>
+                    <MaterialCommunityIcons name={icon as any} size={20} color={color} />
+                    <Text style={[styles.templateExerciseName, { color }]}>{exercise.name}</Text>
+                    <IconButton
+                      icon="close-circle-outline"
+                      size={18}
+                      iconColor={darkTheme.colors.error}
+                      onPress={() => removeExerciseFromTemplate(editingId, exercise.id)}
+                    />
+                  </View>
+                  {exercise.sets.map((set, setIndex) => (
+                    <View key={setIndex} style={styles.templateSetBlock}>
+                      {set.entries.map((entry, entryIndex) => (
+                        <View key={entryIndex}>
+                          <View style={styles.templateSetRow}>
+                            <Text style={styles.templateSetLabel}>S{setIndex + 1}</Text>
+                            <View style={styles.templateEntryRow}>
+                              <TextInput
+                                mode="outlined"
+                                label="回数"
+                                value={entry.reps > 0 ? entry.reps.toString() : ''}
+                                onChangeText={(text) => updateTemplateEntryReps(editingId, exercise.id, setIndex, entryIndex, parseInt(text, 10) || 0)}
+                                keyboardType="number-pad"
+                                style={styles.templateInput}
+                                outlineColor={darkTheme.colors.outline}
+                                activeOutlineColor={color}
+                                dense
+                              />
+                              <TextInput
+                                mode="outlined"
+                                label="kg"
+                                value={entry.weight ? entry.weight.toString() : ''}
+                                onChangeText={(text) => {
+                                  const w = parseFloat(text);
+                                  updateTemplateEntryWeight(editingId, exercise.id, setIndex, entryIndex, Number.isFinite(w) ? w : 0);
+                                }}
+                                keyboardType="decimal-pad"
+                                style={styles.templateInput}
+                                outlineColor={darkTheme.colors.outline}
+                                activeOutlineColor={color}
+                                dense
+                              />
+                            </View>
+                            <IconButton
+                              icon="close"
+                              size={16}
+                              iconColor={darkTheme.colors.onSurfaceVariant}
+                              onPress={() => removeTemplateSet(editingId, exercise.id, setIndex)}
+                            />
+                          </View>
+                          <View style={styles.templateDetailRow}>
+                            <TextInput
+                              mode="outlined"
+                              label="バリエーション"
+                              value={entry.variation || ''}
+                              onChangeText={(text) => updateTemplateEntryVariation(editingId, exercise.id, setIndex, entryIndex, text)}
+                              placeholder="例: ナロー"
+                              style={styles.templateDetailInput}
+                              outlineColor={darkTheme.colors.outline}
+                              activeOutlineColor={color}
+                              dense
+                            />
+                            <TextInput
+                              mode="outlined"
+                              label="テンポ"
+                              value={entry.tempo || ''}
+                              onChangeText={(text) => updateTemplateEntryTempo(editingId, exercise.id, setIndex, entryIndex, text)}
+                              placeholder="例: 2-1-2"
+                              style={styles.templateDetailInput}
+                              outlineColor={darkTheme.colors.outline}
+                              activeOutlineColor={color}
+                              dense
+                            />
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  ))}
+                  <Button
+                    mode="text"
+                    icon="plus"
+                    onPress={() => addTemplateSet(editingId, exercise.id)}
+                    textColor={darkTheme.colors.onSurfaceVariant}
+                    compact
+                    style={styles.templateAddSetButton}
+                  >
+                    セット追加
+                  </Button>
                 </View>
               );
             })}
@@ -882,10 +964,6 @@ export default function HomeScreen() {
   const selectedWorkout = getWorkoutByDate(selectedDate);
   const exercises = selectedWorkout?.exercises ?? EMPTY_EXERCISES;
 
-  // テンプレート編集中の状態
-  const [editingTemplateInfo, setEditingTemplateInfo] = useState<{ id: string; name: string } | null>(null);
-  const updateTemplate = useWorkoutStore((s) => s.updateTemplate);
-
   // Dialog visibility states
   const [dialogVisible, setDialogVisible] = useState(false);
   const [customExerciseDialogVisible, setCustomExerciseDialogVisible] = useState(false);
@@ -928,18 +1006,6 @@ export default function HomeScreen() {
   const handleCloseDatePicker = useCallback(() => setDatePickerVisible(false), []);
   const handleOpenTemplateDialog = useCallback(() => setTemplateDialogVisible(true), []);
   const handleCloseTemplateDialog = useCallback(() => setTemplateDialogVisible(false), []);
-  const handleStartEditing = useCallback((info: { id: string; name: string }) => {
-    setEditingTemplateInfo(info);
-  }, []);
-  const handleFinishEditing = useCallback(() => {
-    if (editingTemplateInfo) {
-      updateTemplate(editingTemplateInfo.id);
-      setEditingTemplateInfo(null);
-    }
-  }, [editingTemplateInfo, updateTemplate]);
-  const handleCancelEditing = useCallback(() => {
-    setEditingTemplateInfo(null);
-  }, []);
   const handleOpenSaveTemplateDialog = useCallback(() => setSaveTemplateDialogVisible(true), []);
   const handleCloseSaveTemplateDialog = useCallback(() => setSaveTemplateDialogVisible(false), []);
 
@@ -988,15 +1054,6 @@ export default function HomeScreen() {
         >
           テンプレート
         </Button>
-        {editingTemplateInfo ? (
-          <View style={styles.editingBanner}>
-            <MaterialCommunityIcons name="playlist-edit" size={18} color="#d4a054" />
-            <Text style={styles.editingBannerText}>「{editingTemplateInfo.name}」を編集中</Text>
-            <Button mode="text" onPress={handleCancelEditing} compact textColor="#d4a054">
-              取消
-            </Button>
-          </View>
-        ) : null}
         <View style={styles.workoutTimerContainer}>
           <Text style={styles.durationText}>筋トレ時間 {formatDuration(workoutDurationSeconds)}</Text>
           <View style={styles.workoutTimerButtons}>
@@ -1058,29 +1115,15 @@ export default function HomeScreen() {
           種目追加
         </Button>
         {exercises.length > 0 ? (
-          editingTemplateInfo ? (
-            <Button
-              mode="contained"
-              icon="content-save-check"
-              onPress={handleFinishEditing}
-              style={styles.saveButtonFlex}
-              contentStyle={styles.addButtonContent}
-              buttonColor="#2a1f0e"
-              textColor="#d4a054"
-            >
-              テンプレ更新
-            </Button>
-          ) : (
-            <Button
-              mode="outlined"
-              icon="bookmark-plus-outline"
-              onPress={handleOpenSaveTemplateDialog}
-              style={styles.saveButtonFlex}
-              contentStyle={styles.addButtonContent}
-            >
-              メニュー保存
-            </Button>
-          )
+          <Button
+            mode="outlined"
+            icon="bookmark-plus-outline"
+            onPress={handleOpenSaveTemplateDialog}
+            style={styles.saveButtonFlex}
+            contentStyle={styles.addButtonContent}
+          >
+            テンプレ保存
+          </Button>
         ) : null}
       </View>
 
@@ -1111,7 +1154,6 @@ export default function HomeScreen() {
         <TemplateSelectDialog
           visible={templateDialogVisible}
           onDismiss={handleCloseTemplateDialog}
-          onStartEditing={handleStartEditing}
         />
         <SaveTemplateDialog
           visible={saveTemplateDialogVisible}
@@ -1428,6 +1470,60 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: darkTheme.colors.onSurfaceVariant,
     marginBottom: 8,
+  },
+  templateEditList: {
+    maxHeight: 450,
+  },
+  templateExerciseCard: {
+    backgroundColor: darkTheme.colors.surfaceVariant,
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    padding: 8,
+    marginBottom: 10,
+  },
+  templateSetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    gap: 4,
+  },
+  templateSetLabel: {
+    color: darkTheme.colors.onSurfaceVariant,
+    fontSize: 12,
+    width: 24,
+    fontWeight: '500',
+  },
+  templateEntryRow: {
+    flexDirection: 'row',
+    flex: 1,
+    gap: 4,
+  },
+  templateInput: {
+    flex: 1,
+    height: 36,
+    backgroundColor: darkTheme.colors.surface,
+    fontSize: 13,
+  },
+  templateAddSetButton: {
+    alignSelf: 'flex-start',
+  },
+  templateSetBlock: {
+    marginBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: darkTheme.colors.outline,
+    paddingBottom: 6,
+  },
+  templateDetailRow: {
+    flexDirection: 'row',
+    gap: 4,
+    marginLeft: 28,
+    marginBottom: 4,
+  },
+  templateDetailInput: {
+    flex: 1,
+    height: 36,
+    backgroundColor: darkTheme.colors.surface,
+    fontSize: 13,
   },
   overwriteSection: {
     marginTop: 16,
