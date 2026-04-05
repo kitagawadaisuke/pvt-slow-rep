@@ -243,6 +243,7 @@ const styles = StyleSheet.create({
   detailsContainer: {
     flex: 1,
     padding: 16,
+    paddingBottom: 100,
   },
   selectedDateText: {
     fontSize: 16,
