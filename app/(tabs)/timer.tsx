@@ -218,7 +218,7 @@ export default function TimerScreen() {
       metronomeRef.current = setInterval(() => {
         const nextBeat = (currentBeatRef.current + 1) % beatsRef.current;
         currentBeatRef.current = nextBeat;
-        const isAccent = nextBeat === 0 || (beatsRef.current === 8 && nextBeat === 4);
+        const isAccent = nextBeat === beatsRef.current - 1 || (beatsRef.current === 8 && nextBeat === 3);
         // playBeepをstate setter外で直接呼び出し（タイミング精度向上）
         playBeep(isAccent);
 
@@ -383,8 +383,8 @@ export default function TimerScreen() {
   };
 
   const isAccentBeat = (beatIndex: number) => {
-    if (beatIndex === 0) return true;
-    if (beats === 8 && beatIndex === 4) return true;
+    if (beatIndex === beats - 1) return true;
+    if (beats === 8 && beatIndex === 3) return true;
     return false;
   };
 
@@ -705,16 +705,15 @@ const generateAccentBeep = (): string => {
 };
 
 const generateTimerEndBeep = (): string => {
-  // Eメジャートライアド上昇チャイム（E5→G#5→B5）
+  // iOSタイマー風の落ち着いたベル音（低→高の柔らかい2音）
   const sampleRate = 22050;
-  const duration = 1.5;
+  const duration = 1.0;
   const samples = Math.floor(sampleRate * duration);
   const data: number[] = [];
 
   const tones = [
-    { freq: 659.3, delay: 0.0, amp: 0.65 },   // E5
-    { freq: 830.6, delay: 0.45, amp: 0.65 },   // G#5
-    { freq: 987.8, delay: 0.90, amp: 0.75 },   // B5
+    { freq: 523.3, delay: 0.0, amp: 0.5 },   // C5
+    { freq: 784.0, delay: 0.3, amp: 0.6 },   // G5
   ];
 
   for (let i = 0; i < samples; i++) {
@@ -723,9 +722,14 @@ const generateTimerEndBeep = (): string => {
     for (const tone of tones) {
       if (t >= tone.delay) {
         const localT = t - tone.delay;
-        const envelope = Math.exp(-localT * 3.5) * tone.amp;
+        // 柔らかいアタック + 自然な減衰
+        const attack = 1 - Math.exp(-localT * 30);
+        const decay = Math.exp(-localT * 4);
+        const envelope = attack * decay * tone.amp;
+        // 基音 + 弱い倍音でベル感を出す
         value += Math.sin(2 * Math.PI * tone.freq * localT) * envelope;
-        value += Math.sin(2 * Math.PI * tone.freq * 2 * localT) * envelope * 0.15;
+        value += Math.sin(2 * Math.PI * tone.freq * 2.0 * localT) * envelope * 0.08;
+        value += Math.sin(2 * Math.PI * tone.freq * 3.0 * localT) * envelope * 0.03;
       }
     }
     const clipped = Math.max(-1, Math.min(1, value));
