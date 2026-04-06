@@ -235,14 +235,6 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* --- ヒント --- */}
-        <View style={styles.tipCard}>
-          <MaterialCommunityIcons name="lightbulb-outline" size={18} color="#6366f1" />
-          <Text style={styles.tipText}>
-            エクスポートしたJSONをClaude等のAIに読み込ませて、トレーニングの傾向分析やアドバイスを受けられます。
-          </Text>
-        </View>
-
         <View style={{ height: 100 }} />
       </ScrollView>
 
