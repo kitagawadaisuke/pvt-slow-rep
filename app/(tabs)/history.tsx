@@ -107,7 +107,7 @@ export default function HistoryScreen() {
         style={styles.calendar}
       />
 
-      <ScrollView style={styles.detailsContainer}>
+      <ScrollView style={styles.detailsContainer} contentContainerStyle={styles.detailsContent}>
         {selectedDate && (
           <Text style={styles.selectedDateText}>
             {new Date(`${selectedDate}T00:00:00`).toLocaleDateString('ja-JP', {
@@ -242,8 +242,10 @@ const styles = StyleSheet.create({
   },
   detailsContainer: {
     flex: 1,
+  },
+  detailsContent: {
     padding: 16,
-    paddingBottom: 160,
+    paddingBottom: 120,
   },
   selectedDateText: {
     fontSize: 16,
