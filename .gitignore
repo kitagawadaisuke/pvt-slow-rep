@@ -10,6 +10,12 @@ npm-debug.*
 *.orig.*
 web-build/
 
+# Build artifacts
+*.ipa
+
+# Local working images
+image/
+
 # macOS
 .DS_Store
 

@@ -37,5 +37,5 @@ I used Claude Code (AI coding assistant) to speed up development — the prototy
 Would love your feedback! What features would you want to see next?
 
 ## Links
-- App Store: https://apps.apple.com/app/slowrep/id6759327746
+- App Store (Japan): https://apps.apple.com/jp/app/slowrep/id6759327746
 - GitHub: https://github.com/kitagawadaisuke/pvt-slow-rep

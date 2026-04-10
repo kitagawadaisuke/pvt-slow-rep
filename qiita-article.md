@@ -1,10 +1,20 @@
 ---
 title: "【SlowRep開発記 #1】既存の筋トレアプリに不満がありすぎたので、自分で作った【Claude Code × Expo】"
-emoji: "💪"
-type: "tech"
-topics: ["reactnative", "expo", "claudecode", "個人開発", "筋トレ"]
-published: true
+tags:
+  - ReactNative
+  - Expo
+  - ClaudeCode
+  - 個人開発
+  - TypeScript
+private: false
+updated_at: ''
+id: null
+organization_url_name: null
+slide: false
+ignorePublish: false
 ---
+
+> この記事は [Zenn](https://zenn.dev/maple617/articles/e9d097b6956795) でも公開している同内容の記事です。
 
 ## 既存アプリへの不満が爆発した
 
