@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { View, ScrollView, StyleSheet, Alert, Pressable } from 'react-native';
 import { Text, Button, List, Portal, Dialog, RadioButton } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { Calendar } from 'react-native-calendars';
 import { useWorkoutStore } from '@/stores/workoutStore';
 import { darkTheme } from '@/constants/theme';
@@ -11,18 +12,25 @@ import { isDurationBasedExercise } from '@/types/workout';
 // --- StatBlock component ---
 const StatBlock = ({ value, label, compact }: { value: string; label: string; compact?: boolean }) => (
   <View style={[statStyles.block, compact && statStyles.blockCompact]}>
-    <Text style={[statStyles.value, compact && statStyles.valueCompact]}>{value}</Text>
+    <Text
+      style={[statStyles.value, compact && statStyles.valueCompact]}
+      numberOfLines={1}
+      adjustsFontSizeToFit
+      minimumFontScale={0.75}
+    >
+      {value}
+    </Text>
     <Text style={statStyles.label}>{label}</Text>
   </View>
 );
 
 const statStyles = StyleSheet.create({
   block: {
+    flex: 1,
     alignItems: 'center',
-    minWidth: '45%',
   },
   blockCompact: {
-    minWidth: '22%',
+    flex: 1,
   },
   value: {
     fontSize: 28,
@@ -31,7 +39,7 @@ const statStyles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   valueCompact: {
-    fontSize: 22,
+    fontSize: 24,
   },
   label: {
     fontSize: 11,
@@ -44,6 +52,7 @@ const statStyles = StyleSheet.create({
 
 export default function SettingsScreen() {
   const { getAllWorkouts, customExercises } = useWorkoutStore();
+  const appVersion = Constants.expoConfig?.version ?? '1.0.3';
   const [exportDialogVisible, setExportDialogVisible] = useState(false);
   const [exportRange, setExportRange] = useState<'all' | 'week' | 'month' | 'day'>('all');
   const [isExporting, setIsExporting] = useState(false);
@@ -108,11 +117,8 @@ export default function SettingsScreen() {
     }
   };
 
-  const formatDurationHM = (seconds: number) => {
-    const hours = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    if (hours > 0) return `${hours}h ${mins}m`;
-    return `${mins}m`;
+  const formatDurationMinutes = (minutes: number) => {
+    return String(minutes);
   };
 
   const calcStats = (targetWorkouts: typeof workouts) => {
@@ -124,10 +130,6 @@ export default function SettingsScreen() {
       trainingDays: targetWorkouts.length,
       totalSets: targetWorkouts.reduce(
         (sum, w) => sum + w.exercises.reduce((s, e) => s + e.sets.length, 0),
-        0
-      ),
-      totalDurationSeconds: targetWorkouts.reduce(
-        (sum, w) => sum + (w.durationSeconds || 0),
         0
       ),
       totalExerciseDurationMinutes: targetWorkouts.reduce(
@@ -163,18 +165,8 @@ export default function SettingsScreen() {
             <StatBlock value={String(yearlyStats.trainingDays)} label="日数" />
             <View style={styles.statDivider} />
             <StatBlock value={String(yearlyStats.totalSets)} label="セット" />
-          </View>
-          <View style={styles.statsRowSecondary}>
-            <View style={styles.statChip}>
-              <MaterialCommunityIcons name="dumbbell" size={14} color="#6366f1" />
-              <Text style={styles.statChipText}>{formatDurationHM(yearlyStats.totalDurationSeconds)}</Text>
-              <Text style={styles.statChipLabel}>筋トレ</Text>
-            </View>
-            <View style={styles.statChip}>
-              <MaterialCommunityIcons name="run" size={14} color="#6366f1" />
-              <Text style={styles.statChipText}>{formatDurationHM(yearlyStats.totalExerciseDurationMinutes * 60)}</Text>
-              <Text style={styles.statChipLabel}>有酸素</Text>
-            </View>
+            <View style={styles.statDivider} />
+            <StatBlock value={formatDurationMinutes(yearlyStats.totalExerciseDurationMinutes)} label="有酸素(分)" compact />
           </View>
         </View>
 
@@ -185,18 +177,8 @@ export default function SettingsScreen() {
             <StatBlock value={String(monthlyStats.trainingDays)} label="日数" />
             <View style={styles.statDivider} />
             <StatBlock value={String(monthlyStats.totalSets)} label="セット" />
-          </View>
-          <View style={styles.statsRowSecondary}>
-            <View style={styles.statChip}>
-              <MaterialCommunityIcons name="dumbbell" size={14} color="#6366f1" />
-              <Text style={styles.statChipText}>{formatDurationHM(monthlyStats.totalDurationSeconds)}</Text>
-              <Text style={styles.statChipLabel}>筋トレ</Text>
-            </View>
-            <View style={styles.statChip}>
-              <MaterialCommunityIcons name="run" size={14} color="#6366f1" />
-              <Text style={styles.statChipText}>{formatDurationHM(monthlyStats.totalExerciseDurationMinutes * 60)}</Text>
-              <Text style={styles.statChipLabel}>有酸素</Text>
-            </View>
+            <View style={styles.statDivider} />
+            <StatBlock value={formatDurationMinutes(monthlyStats.totalExerciseDurationMinutes)} label="有酸素(分)" compact />
           </View>
         </View>
 
@@ -224,7 +206,7 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.listTextWrap}>
               <Text style={styles.listTitle}>バージョン</Text>
-              <Text style={styles.listDesc}>1.0.1</Text>
+              <Text style={styles.listDesc}>{appVersion}</Text>
             </View>
           </View>
           <View style={styles.listSeparator} />
@@ -350,40 +332,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 32,
+    gap: 16,
     paddingVertical: 8,
   },
   statDivider: {
     width: 1,
     height: 40,
     backgroundColor: '#2A2A36',
-  },
-  statsRowSecondary: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 16,
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#2A2A36',
-  },
-  statChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#252530',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    gap: 6,
-  },
-  statChipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#F0F0F5',
-  },
-  statChipLabel: {
-    fontSize: 11,
-    color: '#6B7280',
   },
   listRow: {
     flexDirection: 'row',
